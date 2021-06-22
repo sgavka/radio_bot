@@ -1,0 +1,24 @@
+# IntelliJ project files
+.idea
+__pycache__/
+
+# logs
+logs/
+
+# backups
+backups/
+
+# nohup
+nohup.out
+
+# bot persistence file
+bot_states.prs
+
+# data folder
+/data/
+
+# texts
+*.txt
+
+# bot's sessions
+*.session
