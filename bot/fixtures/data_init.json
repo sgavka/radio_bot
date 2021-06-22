@@ -1,0 +1,28 @@
+[
+  {
+    "model": "bot.bot",
+    "pk": 1,
+    "fields": {
+      "name": "Personal Radio",
+      "username": "PersonalRadioBot",
+      "token": "1805100368:AAFUVhzQQoro3YSz0GFTkREEbOdjc95UhQE"
+    }
+  },
+  {
+    "model": "bot.radio",
+    "pk": 1,
+    "fields": {
+      "name": "Test",
+      "telegram_account": 1,
+      "google_table_id": null,
+      "title_template": null
+    }
+  },
+  {
+    "model": "bot.telegramuser",
+    "pk": 125095865,
+    "fields": {
+      "user": 1
+    }
+  }
+]

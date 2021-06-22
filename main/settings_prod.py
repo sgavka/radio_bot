@@ -1,3 +1,4 @@
+import os
 from main.settings import *
 
 DEBUG = False
