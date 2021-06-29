@@ -19,6 +19,7 @@ bot_states.prs
 
 # texts
 *.txt
+!/requirements
 
 # bot's sessions
 *.session
