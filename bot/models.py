@@ -32,6 +32,9 @@ class TelegramUser(models.Model):
     uid = models.BigIntegerField(primary_key=True)
     user = models.ForeignKey(User, models.CASCADE)
 
+    def is_admin(self) -> bool:
+        return self.user.is_superuser
+
 
 class UserToRadio(models.Model):
     user = models.ForeignKey(User, models.CASCADE)
