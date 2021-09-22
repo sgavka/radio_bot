@@ -7,7 +7,7 @@ class Bot(models.Model):
     name = models.CharField(max_length=255, blank=False)
     username = models.CharField(max_length=255, blank=False)
     token = models.CharField(max_length=255, blank=False)
-    
+
 
 class TelegramAccount(models.Model):
     uid = models.BigIntegerField(primary_key=True)
@@ -19,7 +19,6 @@ class TelegramAccount(models.Model):
 
 class Radio(models.Model):
     name = models.CharField(max_length=255, blank=False)
-    google_table_id = models.CharField(max_length=255, blank=True, null=True)
     title_template = models.TextField(blank=True, null=True)
 
 
@@ -48,6 +47,9 @@ class AudioFile(models.Model):
     file_name = models.CharField(max_length=255, blank=True, null=True)
     duration_seconds = models.IntegerField(blank=True, null=True)
     size = models.IntegerField(blank=True, null=True)
+    
+    def get_full_title(self) -> str:
+        return _('%s — %s') % (self.author, self.title)
 
 
 class Queue(models.Model):

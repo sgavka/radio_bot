@@ -1,8 +1,5 @@
 import re
 from functools import wraps
-from io import StringIO
-from urllib.parse import urlparse
-
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -13,10 +10,7 @@ from django.utils.translation import ugettext as _
 from bot.bot_logic.bot_logic import BotLogic, BotContext
 from bot.helpers import handlers_wrapper
 from bot.models import Radio, TelegramUser, UserToRadio, AudioFile
-from bot.services import radio_user, google_sheets
-import requests
-import csv
-
+from bot.services import radio_user
 from bot.services.radio_user import get_radio_queue
 
 
@@ -201,11 +195,9 @@ class BotLogicRadio(BotLogic):
 
     SET_NAME_CALLBACK_DATA = r'set_name'
     SET_TITLE_TEMPLATE_CALLBACK_DATA = r'set_title_template'
-    SET_GOOGLE_TABLE_ID_CALLBACK_DATA = r'set_google_table_id'
-    ADD_TO_QUEUE_CALLBACK_DATA = r'add_to_queue'
+    MANAGE_QUEUE_CALLBACK_DATA = r'add_to_queue'
     BACK_CALLBACK_DATA = r'back'
     BACK_FROM_ADD_TO_QUEUE_CALLBACK_DATA = r'back_from_add_to_queue'
-    REFRESH_GOOGLE_TABLE_CALLBACK_DATA = r'refresh_google_table'
     EDIT_BACK_CALLBACK_DATA = r'edit_back'
     SAVE_CALLBACK_DATA = r'save'
     CREATE_CALLBACK_DATA = r'create'
@@ -215,12 +207,12 @@ class BotLogicRadio(BotLogic):
     create_message_text = _('To create new object select field and set data.\nData:\n%s')
     edit_message_text = _('It\'s your radio *%s*.\n%s\nSelect some action.')
     list_message_text = _('Here is your radios. Select one to manage:')
-    add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\nYour actual queue:\n%s')
+    add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\nYour actual queue`:`\n%s')
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def edit_back(cls, update: Update, context: CallbackContext):
+    def edit_back_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.clear_after_save()
         context.bot.answer_callback_query(update.callback_query.id, _('Back! Changes was cleared.'))
         return cls.LIST_STATE
@@ -228,14 +220,14 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def back(cls, update: Update, context: CallbackContext):
+    def back_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.delete_list_message()
         return cls.BACK_STATE
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def back_from_add_to_queue(cls, update: Update, context: CallbackContext):
+    def back_from_add_to_queue_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.delete_queue_messages()
         cls.bot_context.set_edit_action()
         return cls.SET_FIELDS_STATE
@@ -243,11 +235,6 @@ class BotLogicRadio(BotLogic):
     @classmethod
     def get_queue_keyboard(cls):
         keyboard = [
-            [
-                InlineKeyboardButton(
-                    _('Refresh from Google Table Queue'),
-                    callback_data=cls.REFRESH_GOOGLE_TABLE_CALLBACK_DATA),
-            ],
             [
                 InlineKeyboardButton(
                     _('Back'),
@@ -264,7 +251,7 @@ class BotLogicRadio(BotLogic):
         queue_list = []
         for queue in queues:
             audio_file: AudioFile = queue.audio_file
-            queue_list.append(_('%s — %s') % (audio_file.author, audio_file.title))
+            queue_list.append(audio_file.get_full_title())
 
         queue_list_str = '\n'.join(queue_list)
         return cls.add_to_queue_message_text % (queue_list_str if queue_list_str else '[[empty]]',)
@@ -272,16 +259,24 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def add_to_queue_upload(cls, update: Update, context: CallbackContext):
+    def add_to_queue_upload_action(cls, update: Update, context: CallbackContext):
         message: Message = update.message
         if message.audio is not None:
-            radio_user.add_file_to_queue(message.audio, cls.bot_context.get_actual_object())
-            message = context.bot.send_message(
-                update.effective_chat.id,
-                text=_('Thanks, file is added, you can continue or press Back.'),
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup(cls.get_queue_keyboard())
-            )
+            result = radio_user.add_file_to_queue(message.audio, cls.bot_context.get_actual_object())
+            if result:
+                message = context.bot.send_message(
+                    update.effective_chat.id,
+                    text=_('Thanks, file is added, you can continue or press Back.'),
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=InlineKeyboardMarkup(cls.get_queue_keyboard())
+                )
+            else:
+                message = context.bot.send_message(
+                    update.effective_chat.id,
+                    text=_('There is internal error, please try again.'),
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=InlineKeyboardMarkup(cls.get_queue_keyboard())
+                )
             cls.bot_context.add_queue_message_to_delete(message.message_id)
             cls.update_queue_message()
         return cls.ADD_TO_QUEUE_CALLBACK_STATE
@@ -299,7 +294,7 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def add_to_queue(cls, update: Update, context: CallbackContext):
+    def manage_queue_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.set_add_to_queue_action()
 
         message = context.bot.send_message(
@@ -317,29 +312,28 @@ class BotLogicRadio(BotLogic):
     @classmethod
     def get_conversation_handler(cls) -> ConversationHandler:
         from bot.bot_logic.main import BotLogicMain
-        list_handler = CallbackQueryHandler(cls.show_list, pattern=BotLogicMain.RADIO_CALLBACK_DATA)
-        create_handler = CallbackQueryHandler(cls.create, pattern=cls.CREATE_CALLBACK_DATA)
-        edit_handler = CallbackQueryHandler(cls.edit, pattern=cls.EDIT_CALLBACK_DATA_PATTERN)
+        list_handler = CallbackQueryHandler(cls.show_list_action, pattern=BotLogicMain.RADIO_CALLBACK_DATA)
+        create_handler = CallbackQueryHandler(cls.create_action, pattern=cls.CREATE_CALLBACK_DATA)
+        edit_handler = CallbackQueryHandler(cls.edit_action, pattern=cls.EDIT_CALLBACK_DATA_PATTERN)
         conversation_handler = ConversationHandler(
             entry_points=[list_handler],
             states={
                 cls.LIST_STATE: [list_handler, create_handler, edit_handler],
                 cls.SET_FIELDS_STATE: [
-                    CallbackQueryHandler(cls.set_name_start, pattern=cls.SET_NAME_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.set_title_template_start, pattern=cls.SET_TITLE_TEMPLATE_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.set_google_table_id_start, pattern=cls.SET_GOOGLE_TABLE_ID_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.save, pattern=cls.SAVE_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.edit_back, pattern=cls.EDIT_BACK_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.add_to_queue, pattern=cls.ADD_TO_QUEUE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.set_name_start_action, pattern=cls.SET_NAME_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.set_title_template_start_action, pattern=cls.SET_TITLE_TEMPLATE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.save_action, pattern=cls.SAVE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.edit_back_action, pattern=cls.EDIT_BACK_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.manage_queue_action, pattern=cls.MANAGE_QUEUE_CALLBACK_DATA),
                 ],
                 cls.ADD_TO_QUEUE_CALLBACK_STATE: [
-                    CallbackQueryHandler(cls.back_from_add_to_queue, pattern=cls.BACK_FROM_ADD_TO_QUEUE_CALLBACK_DATA),
-                    MessageHandler(Filters.all, cls.add_to_queue_upload),
+                    CallbackQueryHandler(cls.back_from_add_to_queue_action, pattern=cls.BACK_FROM_ADD_TO_QUEUE_CALLBACK_DATA),
+                    MessageHandler(Filters.all, cls.add_to_queue_upload_action),
                 ],
-                cls.SET_FIELDS_TEXT_STATE: [MessageHandler(Filters.text, cls.set_fields_text)]
+                cls.SET_FIELDS_TEXT_STATE: [MessageHandler(Filters.text, cls.set_fields_text_action)]
             },
             fallbacks=[
-                CallbackQueryHandler(cls.back, pattern=cls.BACK_CALLBACK_DATA),
+                CallbackQueryHandler(cls.back_action, pattern=cls.BACK_CALLBACK_DATA),
             ],
             map_to_parent={
                 cls.BACK_STATE: BotLogicMain.RADIO_STATE,
@@ -352,7 +346,7 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def save(cls, update: Update, context: CallbackContext):
+    def save_action(cls, update: Update, context: CallbackContext):
         context.bot.answer_callback_query(update.callback_query.id)
         radio = cls.bot_context.get_actual_object()
         radio_user = None
@@ -360,7 +354,7 @@ class BotLogicRadio(BotLogic):
         if not hasattr(radio, 'telegram_account'):
             telegram_user = TelegramUser.objects.get(uid=update.effective_user.id)
             if not telegram_user:
-                user = User.objects.create()
+                user = User.objects.create_action()
                 telegram_user = TelegramUser.objects.create(uid=update.effective_user.id, user=user)
             radio_user = telegram_user.user
 
@@ -411,7 +405,7 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def create(cls, update: Update, context: CallbackContext):
+    def create_action(cls, update: Update, context: CallbackContext):
         context.bot.answer_callback_query(update.callback_query.id)
 
         cls.bot_context.set_create_action()
@@ -435,8 +429,6 @@ class BotLogicRadio(BotLogic):
             return ''
 
         errors = []
-        if radio.google_table_id is None:
-            errors.append(_('⚠ You mast set Google Table Queue'))
 
         if errors:
             return _('Status: Need to Set Up\nProblems:\n%s') % ('\n'.join(errors),)
@@ -445,10 +437,7 @@ class BotLogicRadio(BotLogic):
     @classmethod
     def get_data_strings(cls, radio):
         data_strings = [_('Name**: %s') % (radio.name if radio.name else r'—',),
-                        _('Title Template: %s') % (radio.title_template if radio.title_template else r'—',),
-                        _('Google Table Queue: %s') % (
-                            _('[link](%s)') % (radio.google_table_id,) if radio.google_table_id else r'—',
-                        )]
+                        _('Title Template: %s') % (radio.title_template if radio.title_template else r'—',)]
         return data_strings
 
     @classmethod
@@ -458,11 +447,6 @@ class BotLogicRadio(BotLogic):
             set_name_text = _('Change name')
         else:
             set_name_text = _('Add name')
-
-        if radio.google_table_id:
-            set_google_table_id_text = _('Change Google Table Queue')
-        else:
-            set_google_table_id_text = _('Add Google Table Queue')
 
         if radio.title_template:
             set_title_template_text = _('Change Title Template')
@@ -478,17 +462,13 @@ class BotLogicRadio(BotLogic):
                 callback_data=cls.SET_TITLE_TEMPLATE_CALLBACK_DATA),
         ]]
 
-        google_table_row = [
-            InlineKeyboardButton(
-                set_google_table_id_text,
-                callback_data=cls.SET_GOOGLE_TABLE_ID_CALLBACK_DATA),
-        ]
+        google_table_row = []
 
-        if cls.bot_context.is_edit_action() and radio.google_table_id:
+        if cls.bot_context.is_edit_action():
             google_table_row.append(
                 InlineKeyboardButton(
-                    _('Add to Queue'),
-                    callback_data=cls.ADD_TO_QUEUE_CALLBACK_DATA),
+                    _('Manage Queue'),
+                    callback_data=cls.MANAGE_QUEUE_CALLBACK_DATA),
             )
 
         keyboard.append(google_table_row)
@@ -507,29 +487,13 @@ class BotLogicRadio(BotLogic):
         return keyboard
 
     @classmethod
-    def set_google_table_id_check(cls):
-        message: Message = cls.update.message
-        entity: MessageEntity
-        url = None
-        for entity in message.entities:
-            if entity.type == MessageEntity.URL:
-                url = message.text[entity.offset:entity.length]
-                break
-        if url is None:
-            cls.fields_errors.append(_('You mast sent URL.'))
-            return False
-        return google_sheets.is_queue_file_valid_by_url(url)
-
-    @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def set_fields_text(cls, update: Update, context: CallbackContext):
+    def set_fields_text_action(cls, update: Update, context: CallbackContext):
         field = cls.bot_context.get_actual_field()
         radio = cls.bot_context.get_actual_object()
 
         valid = True
-        if field is Radio.google_table_id.field.name:
-            valid &= cls.set_google_table_id_check()
 
         if valid:
             setattr(radio, field, update.message.text)
@@ -540,7 +504,7 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def set_name_start(cls, update: Update, context: CallbackContext):
+    def set_name_start_action(cls, update: Update, context: CallbackContext):
         context.bot.answer_callback_query(update.callback_query.id)
 
         cls.bot_context.set_actual_field('name')
@@ -556,7 +520,7 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def set_title_template_start(cls, update: Update, context: CallbackContext):
+    def set_title_template_start_action(cls, update: Update, context: CallbackContext):
         context.bot.answer_callback_query(update.callback_query.id)
 
         cls.bot_context.set_actual_field('title_template')
@@ -572,31 +536,7 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def set_google_table_id_start(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
-        cls.bot_context.set_actual_field('google_table_id')
-        message = context.bot.send_message(
-            update.effective_chat.id,
-            text=_(
-                'Enter Google Sheets URL below. Spreadsheet must be visible for every one with link. And have next '
-                'columns on first page:\n'
-                '- Title\n'
-                '- Author\n'
-                '- File ID\n'
-                '- Date Time on Air\n'
-                '- On Air always'
-            ),
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        cls.bot_context.add_message_to_delete(message.message_id)
-
-        return cls.SET_FIELDS_TEXT_STATE
-
-    @classmethod
-    @handlers_wrapper
-    @BotContextRadio.wrapper
-    def edit(cls, update: Update, context: CallbackContext):
+    def edit_action(cls, update: Update, context: CallbackContext):
         context.bot.answer_callback_query(update.callback_query.id)
 
         match = re.match(cls.EDIT_CALLBACK_DATA_PATTERN, update.callback_query.data)
@@ -661,7 +601,7 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
-    def show_list(cls, update: Update, context: CallbackContext):
+    def show_list_action(cls, update: Update, context: CallbackContext):
         context.bot.answer_callback_query(update.callback_query.id)
 
         keyboard_radios = cls.get_list_keyboard()
