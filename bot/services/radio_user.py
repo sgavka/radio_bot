@@ -10,8 +10,8 @@ def get_user_radios(user_id: int):
     return radios
 
 
-def get_radio_queue(radio: Radio):
-    queues = Queue.objects.filter(radio=radio).select_related('audio_file').all()
+def get_radio_queue(radio: Radio, page: int, page_size: int):
+    queues = Queue.objects.filter(radio=radio).select_related('audio_file').all()[page * page_size:page_size]
     return queues
 
 

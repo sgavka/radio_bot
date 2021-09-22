@@ -27,6 +27,9 @@ class BotContextRadio(BotContext):
     QUEUE_MESSAGES_TO_DELETE_CONTEXT = 'queue_messages_to_delete'
     EDIT_OBJECT_CONTEXT = 'edit_object'
     LIST_MESSAGE_CONTEXT = 'list_message'
+    MANAGE_QUEUE_CONTEXT = 'manage_queue'
+    MANAGE_QUEUE_PAGE_CONTEXT = 'manage_queue_page'
+    MANAGE_QUEUE_POINTER_CONTEXT = 'manage_queue_pointer'
 
     EDIT_ACTION = 'edit'
     CREATE_ACTION = 'create'
@@ -64,6 +67,26 @@ class BotContextRadio(BotContext):
         if self.EDIT_CONTEXT not in self.radio:
             self.radio[self.EDIT_CONTEXT] = {}
         self.edit = self.radio[self.EDIT_CONTEXT]
+
+    def set_manage_queue_pointer(self, pointer: tuple):
+        if self.MANAGE_QUEUE_CONTEXT not in self.edit:
+            self.edit[self.MANAGE_QUEUE_CONTEXT] = {}
+        self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_POINTER_CONTEXT] = pointer
+
+    def get_manage_queue_pointer(self):
+        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_POINTER_CONTEXT in self.edit[self.MANAGE_QUEUE_CONTEXT]:
+            return self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_POINTER_CONTEXT]
+        return BotLogicRadio.MANAGE_QUEUE_DEFAULT_POINTER
+
+    def set_manage_queue_page(self, page: int):
+        if self.MANAGE_QUEUE_CONTEXT not in self.edit:
+            self.edit[self.MANAGE_QUEUE_CONTEXT] = {}
+        self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_PAGE_CONTEXT] = page
+
+    def get_manage_queue_page(self):
+        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_PAGE_CONTEXT in self.edit[self.MANAGE_QUEUE_CONTEXT]:
+            return self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_PAGE_CONTEXT]
+        return BotLogicRadio.MANAGE_QUEUE_DEFAULT_PAGE
 
     def set_edited_id(self, edit_id: int):
         self.edit[self.ID_CONTEXT] = edit_id
@@ -191,13 +214,13 @@ class BotLogicRadio(BotLogic):
     ACTIONS_STATE = r'actions'
     SET_FIELDS_STATE = r'set_fields'
     SET_FIELDS_TEXT_STATE = r'set_fields_text'
-    ADD_TO_QUEUE_CALLBACK_STATE = r'add_to_queue'
+    MANAGE_QUEUE_CALLBACK_STATE = r'add_to_queue'
 
     SET_NAME_CALLBACK_DATA = r'set_name'
     SET_TITLE_TEMPLATE_CALLBACK_DATA = r'set_title_template'
     MANAGE_QUEUE_CALLBACK_DATA = r'add_to_queue'
     BACK_CALLBACK_DATA = r'back'
-    BACK_FROM_ADD_TO_QUEUE_CALLBACK_DATA = r'back_from_add_to_queue'
+    BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA = r'back_from_add_to_queue'
     EDIT_BACK_CALLBACK_DATA = r'edit_back'
     SAVE_CALLBACK_DATA = r'save'
     CREATE_CALLBACK_DATA = r'create'
@@ -207,7 +230,60 @@ class BotLogicRadio(BotLogic):
     create_message_text = _('To create new object select field and set data.\nData:\n%s')
     edit_message_text = _('It\'s your radio *%s*.\n%s\nSelect some action.')
     list_message_text = _('Here is your radios. Select one to manage:')
-    add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\nYour actual queue`:`\n%s')
+    add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\nYour actual queue:\n%s')
+
+    MANAGE_QUEUE_ITEMS_ON_PAGE = 20
+    MANAGE_QUEUE_DEFAULT_PAGE = 0
+    MANAGE_QUEUE_DEFAULT_POINTER = (0, 0,)
+
+    UNSELECT_DOWN_CALLBACK_DATA = 'UNSELECT_DOWN'
+    SELECT_DOWN_CALLBACK_DATA = 'SELECT_DOWN'
+    UNSELECT_UP_CALLBACK_DATA = 'UNSELECT_UP'
+    SELECT_UP_CALLBACK_DATA = 'SELECT_UP'
+    DESELECT_CALLBACK_DATA = 'DESELECT'
+    MOVE_POINTER_DOWN_CALLBACK_DATA = 'MOVE_POINTER_DOWN'
+    MOVE_POINTER_UP_CALLBACK_DATA = 'MOVE_POINTER_UP'
+
+    @classmethod
+    def get_conversation_handler(cls) -> ConversationHandler:
+        from bot.bot_logic.main import BotLogicMain
+        list_handler = CallbackQueryHandler(cls.show_list_action, pattern=BotLogicMain.RADIO_CALLBACK_DATA)
+        create_handler = CallbackQueryHandler(cls.create_action, pattern=cls.CREATE_CALLBACK_DATA)
+        edit_handler = CallbackQueryHandler(cls.edit_action, pattern=cls.EDIT_CALLBACK_DATA_PATTERN)
+        conversation_handler = ConversationHandler(
+            entry_points=[list_handler],
+            states={
+                cls.LIST_STATE: [list_handler, create_handler, edit_handler],
+                cls.SET_FIELDS_STATE: [
+                    CallbackQueryHandler(cls.set_name_start_action, pattern=cls.SET_NAME_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.set_title_template_start_action, pattern=cls.SET_TITLE_TEMPLATE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.save_action, pattern=cls.SAVE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.edit_back_action, pattern=cls.EDIT_BACK_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.manage_queue_action, pattern=cls.MANAGE_QUEUE_CALLBACK_DATA),
+                ],
+                cls.MANAGE_QUEUE_CALLBACK_STATE: [
+                    CallbackQueryHandler(cls.back_from_add_to_queue_action, pattern=cls.BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.unselect_down_action, pattern=cls.UNSELECT_DOWN_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.select_down_action, pattern=cls.SELECT_DOWN_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.unselect_up_action, pattern=cls.UNSELECT_UP_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.select_up_action, pattern=cls.SELECT_UP_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.deselect_action, pattern=cls.DESELECT_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.move_pointer_down_action, pattern=cls.MOVE_POINTER_DOWN_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.move_pointer_up_action, pattern=cls.MOVE_POINTER_UP_CALLBACK_DATA),
+                    MessageHandler(Filters.all, cls.add_to_queue_upload_action),
+                ],
+                cls.SET_FIELDS_TEXT_STATE: [MessageHandler(Filters.text, cls.set_fields_text_action)]
+            },
+            fallbacks=[
+                CallbackQueryHandler(cls.back_action, pattern=cls.BACK_CALLBACK_DATA),
+            ],
+            map_to_parent={
+                cls.BACK_STATE: BotLogicMain.RADIO_STATE,
+                BotLogicMain.RADIO_STATE: BotLogicMain.RADIO_STATE,
+            }
+        )
+
+        return conversation_handler
 
     @classmethod
     @handlers_wrapper
@@ -230,28 +306,180 @@ class BotLogicRadio(BotLogic):
     def back_from_add_to_queue_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.delete_queue_messages()
         cls.bot_context.set_edit_action()
+        cls.bot_context.set_manage_queue_pointer((0, 0,))
         return cls.SET_FIELDS_STATE
 
     @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def unselect_down_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        if pointer_end != pointer_start:
+            pointer_end -= 1
+            cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
+            cls.update_queue_message()
+
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def select_down_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        if pointer_end + 1 <= cls.MANAGE_QUEUE_ITEMS_ON_PAGE:
+            pointer_end += 1
+            cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
+            cls.update_queue_message()
+
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def unselect_up_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        if pointer_start != pointer_end:
+            pointer_start += 1
+            cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
+            cls.update_queue_message()
+
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def select_up_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        if pointer_start - 1 >= 0:
+            pointer_start -= 1
+            cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
+            cls.update_queue_message()
+
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def deselect_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        pointer_end = pointer_start
+        cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
+        cls.update_queue_message()
+
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def move_pointer_down_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        if pointer_start + 1 <= cls.MANAGE_QUEUE_ITEMS_ON_PAGE:
+            pointer_start += 1
+            pointer_end = pointer_start
+            cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
+            cls.update_queue_message()
+
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def move_pointer_up_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        if pointer_start - 1 >= 0:
+            pointer_start -= 1
+            pointer_end = pointer_start
+            cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
+            cls.update_queue_message()
+
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
     def get_queue_keyboard(cls):
-        keyboard = [
-            [
+        keyboard = []
+
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+
+        move_pointer_line = []
+        if pointer_start == pointer_end:
+            if pointer_start > 0:
+                move_pointer_line.append(
+                    InlineKeyboardButton(
+                        _('↑'),
+                        callback_data=cls.MOVE_POINTER_UP_CALLBACK_DATA),
+                )
+            if pointer_end < cls.MANAGE_QUEUE_ITEMS_ON_PAGE - 1:
+                move_pointer_line.append(
+                    InlineKeyboardButton(
+                        _('↓'),
+                        callback_data=cls.MOVE_POINTER_DOWN_CALLBACK_DATA),
+                )
+        else:
+            move_pointer_line.append(
                 InlineKeyboardButton(
-                    _('Back'),
-                    callback_data=cls.BACK_FROM_ADD_TO_QUEUE_CALLBACK_DATA),
-            ],
-        ]
+                    _('Deselect'),
+                    callback_data=cls.DESELECT_CALLBACK_DATA),
+            )
+
+        keyboard.append(move_pointer_line)
+
+        select_line = []
+        if pointer_start > 0 or pointer_start != pointer_end:
+            if pointer_start != pointer_end:
+                select_line.append(
+                    InlineKeyboardButton(
+                        _('⇣'),
+                        callback_data=cls.UNSELECT_UP_CALLBACK_DATA),
+                )
+            if pointer_start > 0:
+                select_line.append(
+                    InlineKeyboardButton(
+                        _('↥'),
+                        callback_data=cls.SELECT_UP_CALLBACK_DATA),
+                )
+        if pointer_end < cls.MANAGE_QUEUE_ITEMS_ON_PAGE - 1 or pointer_start != pointer_end:
+            if pointer_end < cls.MANAGE_QUEUE_ITEMS_ON_PAGE - 1:
+                select_line.append(
+                    InlineKeyboardButton(
+                        _('↧'),
+                        callback_data=cls.SELECT_DOWN_CALLBACK_DATA),
+                )
+            if pointer_start != pointer_end:
+                select_line.append(
+                    InlineKeyboardButton(
+                        _('⇡'),
+                        callback_data=cls.UNSELECT_DOWN_CALLBACK_DATA),
+                )
+
+        keyboard.append(select_line)
+
+        keyboard.append([
+            InlineKeyboardButton(
+                _('Back'),
+                callback_data=cls.BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA),
+        ])
 
         return keyboard
 
     @classmethod
     def get_queue_message_text(cls):
-        queues = get_radio_queue(cls.bot_context.get_actual_object())
+        page = cls.bot_context.get_manage_queue_page()
+        (pointer_start, pointer_end,) = cls.bot_context.get_manage_queue_pointer()
+        queues = get_radio_queue(cls.bot_context.get_actual_object(),
+                                 page=page,
+                                 page_size=cls.MANAGE_QUEUE_ITEMS_ON_PAGE)
 
         queue_list = []
+        index = 0
         for queue in queues:
             audio_file: AudioFile = queue.audio_file
-            queue_list.append(audio_file.get_full_title())
+
+            if pointer_start <= index <= pointer_end:
+                title = '*%s*' % (audio_file.get_full_title(),)
+            else:
+                title = audio_file.get_full_title()
+            queue_list.append(title)
+            index += 1
 
         queue_list_str = '\n'.join(queue_list)
         return cls.add_to_queue_message_text % (queue_list_str if queue_list_str else '[[empty]]',)
@@ -279,7 +507,7 @@ class BotLogicRadio(BotLogic):
                 )
             cls.bot_context.add_queue_message_to_delete(message.message_id)
             cls.update_queue_message()
-        return cls.ADD_TO_QUEUE_CALLBACK_STATE
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
     def update_queue_message(cls):
@@ -307,41 +535,7 @@ class BotLogicRadio(BotLogic):
         cls.bot_context.add_queue_message_to_delete(message.message_id)
         cls.bot_context.set_queue_message_id(message.message_id)
 
-        return cls.ADD_TO_QUEUE_CALLBACK_STATE
-
-    @classmethod
-    def get_conversation_handler(cls) -> ConversationHandler:
-        from bot.bot_logic.main import BotLogicMain
-        list_handler = CallbackQueryHandler(cls.show_list_action, pattern=BotLogicMain.RADIO_CALLBACK_DATA)
-        create_handler = CallbackQueryHandler(cls.create_action, pattern=cls.CREATE_CALLBACK_DATA)
-        edit_handler = CallbackQueryHandler(cls.edit_action, pattern=cls.EDIT_CALLBACK_DATA_PATTERN)
-        conversation_handler = ConversationHandler(
-            entry_points=[list_handler],
-            states={
-                cls.LIST_STATE: [list_handler, create_handler, edit_handler],
-                cls.SET_FIELDS_STATE: [
-                    CallbackQueryHandler(cls.set_name_start_action, pattern=cls.SET_NAME_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.set_title_template_start_action, pattern=cls.SET_TITLE_TEMPLATE_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.save_action, pattern=cls.SAVE_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.edit_back_action, pattern=cls.EDIT_BACK_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.manage_queue_action, pattern=cls.MANAGE_QUEUE_CALLBACK_DATA),
-                ],
-                cls.ADD_TO_QUEUE_CALLBACK_STATE: [
-                    CallbackQueryHandler(cls.back_from_add_to_queue_action, pattern=cls.BACK_FROM_ADD_TO_QUEUE_CALLBACK_DATA),
-                    MessageHandler(Filters.all, cls.add_to_queue_upload_action),
-                ],
-                cls.SET_FIELDS_TEXT_STATE: [MessageHandler(Filters.text, cls.set_fields_text_action)]
-            },
-            fallbacks=[
-                CallbackQueryHandler(cls.back_action, pattern=cls.BACK_CALLBACK_DATA),
-            ],
-            map_to_parent={
-                cls.BACK_STATE: BotLogicMain.RADIO_STATE,
-                BotLogicMain.RADIO_STATE: BotLogicMain.RADIO_STATE,
-            }
-        )
-
-        return conversation_handler
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
     @handlers_wrapper
