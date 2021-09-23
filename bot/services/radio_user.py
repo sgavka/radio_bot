@@ -15,7 +15,7 @@ def get_radio_queue(radio: Radio, page: int, page_size: int):
     queues = Queue.objects.filter(
         ~Q(status=Queue.STATUS_DELETED),
         radio=radio
-    ).select_related('audio_file').order_by('sort').all()[page * page_size:page_size]
+    ).select_related('audio_file').order_by('sort').all()[page * page_size:(page + 1) * page_size]
     return queues
 
 
@@ -46,6 +46,13 @@ def move_up_queue_item(item: Queue):
     item.sort, prev_item.sort = prev_item.sort, item.sort
     prev_item.save()
     item.save()
+
+
+def count_of_queue_items(radio: Radio):
+    return Queue.objects.filter(
+        ~Q(status=Queue.STATUS_DELETED),
+        radio=radio
+    ).count()
 
 
 def add_file_to_queue(audio: Audio, radio: Radio) -> bool:

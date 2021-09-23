@@ -1,5 +1,7 @@
 import re
 from functools import wraps
+from math import ceil
+
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -11,7 +13,8 @@ from bot.bot_logic.bot_logic import BotLogic, BotContext
 from bot.helpers import handlers_wrapper
 from bot.models import Radio, TelegramUser, UserToRadio, AudioFile, Queue
 from bot.services import radio_user
-from bot.services.radio_user import get_radio_queue, delete_queue_item, move_up_queue_item, move_down_queue_item
+from bot.services.radio_user import get_radio_queue, delete_queue_item, move_up_queue_item, move_down_queue_item, \
+    count_of_queue_items
 
 
 class BotContextRadio(BotContext):
@@ -242,7 +245,7 @@ class BotLogicRadio(BotLogic):
     list_message_text = _('Here is your radios. Select one to manage:')
     add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\n\nYour actual queue:\n%s')
 
-    MANAGE_QUEUE_ITEMS_ON_PAGE = 20
+    MANAGE_QUEUE_ITEMS_ON_PAGE = 5
     MANAGE_QUEUE_DEFAULT_PAGE = 0
     MANAGE_QUEUE_DEFAULT_POINTER = (0, 0,)
 
@@ -256,6 +259,8 @@ class BotLogicRadio(BotLogic):
     MOVE_DOWN_CALLBACK_DATA = 'move_down'
     MOVE_UP_CALLBACK_DATA = 'move_up'
     DELETE_CALLBACK_DATA = 'delete'
+    NEXT_PAGE_CALLBACK_DATA = 'next_page'
+    PREV_PAGE_CALLBACK_DATA = 'prev_page'
 
     @classmethod
     def get_conversation_handler(cls) -> ConversationHandler:
@@ -286,6 +291,8 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.move_down_action, pattern=cls.MOVE_DOWN_CALLBACK_DATA),
                     CallbackQueryHandler(cls.move_up_action, pattern=cls.MOVE_UP_CALLBACK_DATA),
                     CallbackQueryHandler(cls.delete_action, pattern=cls.DELETE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.prev_page_action, pattern=cls.PREV_PAGE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.next_page_action, pattern=cls.NEXT_PAGE_CALLBACK_DATA),
                     MessageHandler(Filters.all, cls.add_to_queue_upload_action),
                 ],
                 cls.SET_FIELDS_TEXT_STATE: [MessageHandler(Filters.text, cls.set_fields_text_action)]
@@ -463,6 +470,24 @@ class BotLogicRadio(BotLogic):
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def next_page_action(cls, update: Update, context: CallbackContext):
+        page = cls.bot_context.get_manage_queue_page()
+        cls.bot_context.set_manage_queue_page(page + 1)
+        cls.update_queue_message()
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def prev_page_action(cls, update: Update, context: CallbackContext):
+        page = cls.bot_context.get_manage_queue_page()
+        cls.bot_context.set_manage_queue_page(page - 1)
+        cls.update_queue_message()
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
     def get_queue_keyboard(cls):
         keyboard = []
 
@@ -561,6 +586,35 @@ class BotLogicRadio(BotLogic):
                 )
         keyboard.append(actions)
 
+        # page actions
+        pages = []
+        page = cls.bot_context.get_manage_queue_page()
+        if page > BotLogicRadio.MANAGE_QUEUE_DEFAULT_PAGE:
+            pages.append(
+                InlineKeyboardButton(
+                    _('<<'),
+                    callback_data=cls.PREV_PAGE_CALLBACK_DATA),
+            )
+
+        total_in_queue = count_of_queue_items(cls.bot_context.get_actual_object())
+        pages_float = total_in_queue / cls.MANAGE_QUEUE_ITEMS_ON_PAGE
+        if page > BotLogicRadio.MANAGE_QUEUE_DEFAULT_PAGE or (pages_float) > 1:
+            pages.append(
+                InlineKeyboardButton(
+                    _('%s') % (page + 1,),
+                    callback_data='blank'),
+            )
+
+        if pages_float > 1 and page < ceil(pages_float) - 1:
+            pages.append(
+                InlineKeyboardButton(
+                    _('>>'),
+                    callback_data=cls.NEXT_PAGE_CALLBACK_DATA),
+            )
+
+        if len(pages):
+            keyboard.append(pages)
+
         keyboard.append([
             InlineKeyboardButton(
                 _('Back'),
@@ -583,6 +637,7 @@ class BotLogicRadio(BotLogic):
             audio_file: AudioFile = queue.audio_file
 
             full_title = '%s' % (audio_file.get_full_title(),)
+            full_title = '[%s-%s] %s' % (queue.id, queue.sort, audio_file.get_full_title(),)
             if pointer_start <= index <= pointer_end:
                 title = '*%s*' % (full_title,)
             else:
@@ -636,6 +691,7 @@ class BotLogicRadio(BotLogic):
     @BotContextRadio.wrapper
     def manage_queue_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.set_add_to_queue_action()
+        cls.bot_context.set_manage_queue_pointer((0, 0))
 
         message = context.bot.send_message(
             update.effective_chat.id,
