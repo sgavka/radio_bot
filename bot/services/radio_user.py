@@ -1,4 +1,5 @@
 from django.db import transaction, IntegrityError, DatabaseError
+from django.db.models import Q
 from telegram import Audio
 
 from bot.models import UserToRadio, Radio, Queue, AudioFile
@@ -11,8 +12,40 @@ def get_user_radios(user_id: int):
 
 
 def get_radio_queue(radio: Radio, page: int, page_size: int):
-    queues = Queue.objects.filter(radio=radio).select_related('audio_file').all()[page * page_size:page_size]
+    queues = Queue.objects.filter(
+        ~Q(status=Queue.STATUS_DELETED),
+        radio=radio
+    ).select_related('audio_file').order_by('sort').all()[page * page_size:page_size]
     return queues
+
+
+def delete_queue_item(item: Queue):
+    item.status = Queue.STATUS_DELETED
+    item.save()
+
+
+@transaction.atomic
+def move_down_queue_item(item: Queue):
+    next_item = Queue.objects.filter(
+        ~Q(status=Queue.STATUS_DELETED),
+        sort__gt=item.sort,
+        radio=item.radio
+    ).order_by('sort').first()
+    item.sort, next_item.sort = next_item.sort, item.sort
+    next_item.save()
+    item.save()
+
+
+@transaction.atomic
+def move_up_queue_item(item: Queue):
+    prev_item = Queue.objects.filter(
+        ~Q(status=Queue.STATUS_DELETED),
+        sort__lt=item.sort,
+        radio=item.radio
+    ).order_by('-sort').first()
+    item.sort, prev_item.sort = prev_item.sort, item.sort
+    prev_item.save()
+    item.save()
 
 
 def add_file_to_queue(audio: Audio, radio: Radio) -> bool:

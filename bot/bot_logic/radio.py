@@ -9,9 +9,9 @@ from telegram.ext import ConversationHandler, CallbackQueryHandler, CallbackCont
 from django.utils.translation import ugettext as _
 from bot.bot_logic.bot_logic import BotLogic, BotContext
 from bot.helpers import handlers_wrapper
-from bot.models import Radio, TelegramUser, UserToRadio, AudioFile
+from bot.models import Radio, TelegramUser, UserToRadio, AudioFile, Queue
 from bot.services import radio_user
-from bot.services.radio_user import get_radio_queue
+from bot.services.radio_user import get_radio_queue, delete_queue_item, move_up_queue_item, move_down_queue_item
 
 
 class BotContextRadio(BotContext):
@@ -30,6 +30,7 @@ class BotContextRadio(BotContext):
     MANAGE_QUEUE_CONTEXT = 'manage_queue'
     MANAGE_QUEUE_PAGE_CONTEXT = 'manage_queue_page'
     MANAGE_QUEUE_POINTER_CONTEXT = 'manage_queue_pointer'
+    MANAGE_QUEUE_ACTUAL_ITEMS_ON_PAGE_CONTEXT = 'manage_queue_actual_items_on_page'
 
     EDIT_ACTION = 'edit'
     CREATE_ACTION = 'create'
@@ -87,6 +88,15 @@ class BotContextRadio(BotContext):
         if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_PAGE_CONTEXT in self.edit[self.MANAGE_QUEUE_CONTEXT]:
             return self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_PAGE_CONTEXT]
         return BotLogicRadio.MANAGE_QUEUE_DEFAULT_PAGE
+
+    def set_manage_queue_actual_items_on_page(self, items_count: int):
+        if self.MANAGE_QUEUE_CONTEXT not in self.edit:
+            self.edit[self.MANAGE_QUEUE_CONTEXT] = {}
+        self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_ACTUAL_ITEMS_ON_PAGE_CONTEXT] = items_count
+
+    def get_manage_queue_actual_items_on_page(self):
+        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_ACTUAL_ITEMS_ON_PAGE_CONTEXT in self.edit[self.MANAGE_QUEUE_CONTEXT]:
+            return self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_ACTUAL_ITEMS_ON_PAGE_CONTEXT]
 
     def set_edited_id(self, edit_id: int):
         self.edit[self.ID_CONTEXT] = edit_id
@@ -230,19 +240,22 @@ class BotLogicRadio(BotLogic):
     create_message_text = _('To create new object select field and set data.\nData:\n%s')
     edit_message_text = _('It\'s your radio *%s*.\n%s\nSelect some action.')
     list_message_text = _('Here is your radios. Select one to manage:')
-    add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\nYour actual queue:\n%s')
+    add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\n\nYour actual queue:\n%s')
 
     MANAGE_QUEUE_ITEMS_ON_PAGE = 20
     MANAGE_QUEUE_DEFAULT_PAGE = 0
     MANAGE_QUEUE_DEFAULT_POINTER = (0, 0,)
 
-    UNSELECT_DOWN_CALLBACK_DATA = 'UNSELECT_DOWN'
-    SELECT_DOWN_CALLBACK_DATA = 'SELECT_DOWN'
-    UNSELECT_UP_CALLBACK_DATA = 'UNSELECT_UP'
-    SELECT_UP_CALLBACK_DATA = 'SELECT_UP'
-    DESELECT_CALLBACK_DATA = 'DESELECT'
-    MOVE_POINTER_DOWN_CALLBACK_DATA = 'MOVE_POINTER_DOWN'
-    MOVE_POINTER_UP_CALLBACK_DATA = 'MOVE_POINTER_UP'
+    UNSELECT_DOWN_CALLBACK_DATA = 'unselect_down'
+    SELECT_DOWN_CALLBACK_DATA = 'select_down'
+    UNSELECT_UP_CALLBACK_DATA = 'unselect_up'
+    SELECT_UP_CALLBACK_DATA = 'select_up'
+    DESELECT_CALLBACK_DATA = 'deselect'
+    MOVE_POINTER_DOWN_CALLBACK_DATA = 'move_pointer_down'
+    MOVE_POINTER_UP_CALLBACK_DATA = 'move_pointer_up'
+    MOVE_DOWN_CALLBACK_DATA = 'move_down'
+    MOVE_UP_CALLBACK_DATA = 'move_up'
+    DELETE_CALLBACK_DATA = 'delete'
 
     @classmethod
     def get_conversation_handler(cls) -> ConversationHandler:
@@ -270,6 +283,9 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.deselect_action, pattern=cls.DESELECT_CALLBACK_DATA),
                     CallbackQueryHandler(cls.move_pointer_down_action, pattern=cls.MOVE_POINTER_DOWN_CALLBACK_DATA),
                     CallbackQueryHandler(cls.move_pointer_up_action, pattern=cls.MOVE_POINTER_UP_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.move_down_action, pattern=cls.MOVE_DOWN_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.move_up_action, pattern=cls.MOVE_UP_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.delete_action, pattern=cls.DELETE_CALLBACK_DATA),
                     MessageHandler(Filters.all, cls.add_to_queue_upload_action),
                 ],
                 cls.SET_FIELDS_TEXT_STATE: [MessageHandler(Filters.text, cls.set_fields_text_action)]
@@ -395,20 +411,83 @@ class BotLogicRadio(BotLogic):
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def move_down_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        page = cls.bot_context.get_manage_queue_page()
+
+        queues = get_radio_queue(cls.bot_context.get_actual_object(),
+                                 page=page,
+                                 page_size=cls.MANAGE_QUEUE_ITEMS_ON_PAGE)
+
+        item = list(queues)[pointer_start]
+        cls.bot_context.set_manage_queue_pointer((pointer_start + 1, pointer_end + 1))
+        move_down_queue_item(item)
+        cls.update_queue_message()
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def move_up_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        page = cls.bot_context.get_manage_queue_page()
+
+        queues = get_radio_queue(cls.bot_context.get_actual_object(),
+                                 page=page,
+                                 page_size=cls.MANAGE_QUEUE_ITEMS_ON_PAGE)
+
+        item = list(queues)[pointer_start]
+        cls.bot_context.set_manage_queue_pointer((pointer_start - 1, pointer_end - 1))
+        move_up_queue_item(item)
+        cls.update_queue_message()
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def delete_action(cls, update: Update, context: CallbackContext):
+        (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        page = cls.bot_context.get_manage_queue_page()
+
+        queues = get_radio_queue(cls.bot_context.get_actual_object(),
+                                 page=page,
+                                 page_size=cls.MANAGE_QUEUE_ITEMS_ON_PAGE)
+
+        items = queues[pointer_start:pointer_end + 1]
+        item: Queue
+        for item in items:
+            delete_queue_item(item)
+        cls.update_queue_message()
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
     def get_queue_keyboard(cls):
         keyboard = []
 
         (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
 
+        # move line
         move_pointer_line = []
+        if cls.bot_context.get_manage_queue_actual_items_on_page() != cls.MANAGE_QUEUE_ITEMS_ON_PAGE:
+            last_element_on_page = cls.bot_context.get_manage_queue_actual_items_on_page() - 1
+        else:
+            last_element_on_page = cls.MANAGE_QUEUE_ITEMS_ON_PAGE - 1
         if pointer_start == pointer_end:
+            keyboard.append([
+                InlineKeyboardButton(
+                    _('Move pointer:'),
+                    callback_data='blank'
+                )
+            ])
             if pointer_start > 0:
                 move_pointer_line.append(
                     InlineKeyboardButton(
                         _('↑'),
                         callback_data=cls.MOVE_POINTER_UP_CALLBACK_DATA),
                 )
-            if pointer_end < cls.MANAGE_QUEUE_ITEMS_ON_PAGE - 1:
+            if pointer_end < last_element_on_page:
                 move_pointer_line.append(
                     InlineKeyboardButton(
                         _('↓'),
@@ -423,7 +502,14 @@ class BotLogicRadio(BotLogic):
 
         keyboard.append(move_pointer_line)
 
+        # select line
         select_line = []
+        keyboard.append([
+            InlineKeyboardButton(
+                _('Select items:'),
+                callback_data='blank'
+            )
+        ])
         if pointer_start > 0 or pointer_start != pointer_end:
             if pointer_start != pointer_end:
                 select_line.append(
@@ -437,8 +523,8 @@ class BotLogicRadio(BotLogic):
                         _('↥'),
                         callback_data=cls.SELECT_UP_CALLBACK_DATA),
                 )
-        if pointer_end < cls.MANAGE_QUEUE_ITEMS_ON_PAGE - 1 or pointer_start != pointer_end:
-            if pointer_end < cls.MANAGE_QUEUE_ITEMS_ON_PAGE - 1:
+        if pointer_end < last_element_on_page or pointer_start != pointer_end:
+            if pointer_end < last_element_on_page:
                 select_line.append(
                     InlineKeyboardButton(
                         _('↧'),
@@ -452,6 +538,28 @@ class BotLogicRadio(BotLogic):
                 )
 
         keyboard.append(select_line)
+
+        # actions
+        actions = []
+        actions.append(
+            InlineKeyboardButton(
+                _('Delete'),
+                callback_data=cls.DELETE_CALLBACK_DATA),
+        )
+        if pointer_start == pointer_end:
+            if pointer_start > 0:
+                actions.append(
+                    InlineKeyboardButton(
+                        _('Move Up'),
+                        callback_data=cls.MOVE_UP_CALLBACK_DATA),
+                )
+            if pointer_end < last_element_on_page:
+                actions.append(
+                    InlineKeyboardButton(
+                        _('Move Down'),
+                        callback_data=cls.MOVE_DOWN_CALLBACK_DATA),
+                )
+        keyboard.append(actions)
 
         keyboard.append([
             InlineKeyboardButton(
@@ -468,16 +576,17 @@ class BotLogicRadio(BotLogic):
         queues = get_radio_queue(cls.bot_context.get_actual_object(),
                                  page=page,
                                  page_size=cls.MANAGE_QUEUE_ITEMS_ON_PAGE)
-
+        cls.bot_context.set_manage_queue_actual_items_on_page(len(queues))
         queue_list = []
         index = 0
         for queue in queues:
             audio_file: AudioFile = queue.audio_file
 
+            full_title = '%s' % (audio_file.get_full_title(),)
             if pointer_start <= index <= pointer_end:
-                title = '*%s*' % (audio_file.get_full_title(),)
+                title = '*%s*' % (full_title,)
             else:
-                title = audio_file.get_full_title()
+                title = full_title
             queue_list.append(title)
             index += 1
 
@@ -512,12 +621,15 @@ class BotLogicRadio(BotLogic):
     @classmethod
     def update_queue_message(cls):
         message_id = cls.bot_context.get_queue_message_id()
-        cls.context.bot.edit_message_text(cls.get_queue_message_text(),
-                                          cls.update.effective_chat.id,
-                                          message_id,
-                                          parse_mode=ParseMode.MARKDOWN,
-                                          reply_markup=InlineKeyboardMarkup(cls.get_queue_keyboard())
-                                          )
+        try:
+            cls.context.bot.edit_message_text(cls.get_queue_message_text(),
+                                              cls.update.effective_chat.id,
+                                              message_id,
+                                              parse_mode=ParseMode.MARKDOWN,
+                                              reply_markup=InlineKeyboardMarkup(cls.get_queue_keyboard())
+                                              )
+        except BadRequest as e:
+            pass
 
     @classmethod
     @handlers_wrapper

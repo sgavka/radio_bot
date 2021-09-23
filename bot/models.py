@@ -55,7 +55,20 @@ class AudioFile(models.Model):
 class Queue(models.Model):
     FILE_TYPE = 0
     TYPES = {
-        FILE_TYPE: _('File')
+        FILE_TYPE: _('File'),
+    }
+
+    STATUS_IN_QUEUE = 0
+    STATUS_HAS_ERRORS = 1
+    STATUS_PLAYED = 2
+    STATUS_WAIT_TO_CALCULATE_START_DATETIME = 3
+    STATUS_DELETED = 4
+    STATUSES = {
+        STATUS_IN_QUEUE: _('In queue'),
+        STATUS_HAS_ERRORS: _('Has errors'),
+        STATUS_PLAYED: _('Played'),
+        STATUS_WAIT_TO_CALCULATE_START_DATETIME: _('Wait to calculate start date time'),
+        STATUS_DELETED: _('Deleted'),
     }
 
     radio = models.ForeignKey(Radio, models.CASCADE)
@@ -65,6 +78,7 @@ class Queue(models.Model):
     datetime_is_automatic = models.BooleanField()
     on_air_always = models.BooleanField()  # only for streams
     type = models.IntegerField()
+    status = models.IntegerField(default=STATUS_WAIT_TO_CALCULATE_START_DATETIME)
 
 
 class QueueDownloadSoundCloud(models.Model):
