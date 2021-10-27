@@ -9,8 +9,9 @@ from telegram.ext import ConversationHandler, CallbackQueryHandler, CallbackCont
 from django.utils.translation import ugettext as _
 from bot.bot_logic.bot_logic import BotLogic, BotContext
 from bot.helpers import handlers_wrapper, create_user
-from bot.models import Radio, TelegramUser, UserToRadio, AudioFile, Queue
+from bot.models import Radio, TelegramUser, UserToRadio, AudioFile, Queue, BroadcastUser
 from bot.services import radio_user
+from bot.services.broadcast_user import get_owned_broadcasters
 from bot.services.radio_user import get_radio_queue, delete_queue_item, move_up_queue_item, move_down_queue_item, \
     count_of_queue_items
 
@@ -59,7 +60,8 @@ class BotContextRadio(BotContext):
         self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_POINTER_CONTEXT] = pointer
 
     def get_manage_queue_pointer(self):
-        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_POINTER_CONTEXT in self.edit[self.MANAGE_QUEUE_CONTEXT]:
+        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_POINTER_CONTEXT in self.edit[
+            self.MANAGE_QUEUE_CONTEXT]:
             return self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_POINTER_CONTEXT]
         return BotLogicRadio.MANAGE_QUEUE_DEFAULT_POINTER
 
@@ -69,7 +71,8 @@ class BotContextRadio(BotContext):
         self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_PAGE_CONTEXT] = page
 
     def get_manage_queue_page(self):
-        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_PAGE_CONTEXT in self.edit[self.MANAGE_QUEUE_CONTEXT]:
+        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_PAGE_CONTEXT in self.edit[
+            self.MANAGE_QUEUE_CONTEXT]:
             return self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_PAGE_CONTEXT]
         return BotLogicRadio.MANAGE_QUEUE_DEFAULT_PAGE
 
@@ -79,7 +82,8 @@ class BotContextRadio(BotContext):
         self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_ACTUAL_ITEMS_ON_PAGE_CONTEXT] = items_count
 
     def get_manage_queue_actual_items_on_page(self):
-        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_ACTUAL_ITEMS_ON_PAGE_CONTEXT in self.edit[self.MANAGE_QUEUE_CONTEXT]:
+        if self.MANAGE_QUEUE_CONTEXT in self.edit and self.MANAGE_QUEUE_ACTUAL_ITEMS_ON_PAGE_CONTEXT in self.edit[
+            self.MANAGE_QUEUE_CONTEXT]:
             return self.edit[self.MANAGE_QUEUE_CONTEXT][self.MANAGE_QUEUE_ACTUAL_ITEMS_ON_PAGE_CONTEXT]
 
     def set_edited_id(self, edit_id: int):
@@ -209,9 +213,13 @@ class BotLogicRadio(BotLogic):
     SET_FIELDS_STATE = r'set_fields'
     SET_FIELDS_TEXT_STATE = r'set_fields_text'
     MANAGE_QUEUE_CALLBACK_STATE = r'add_to_queue'
+    CHOOSE_BROADCASTER_CALLBACK_STATE = r'choose_broadcaster'
 
     SET_NAME_CALLBACK_DATA = r'set_name'
     SET_TITLE_TEMPLATE_CALLBACK_DATA = r'set_title_template'
+    SET_BROADCASTER_CALLBACK_DATA = r'set_broadcaster_%s'
+    SET_BROADCASTER_CALLBACK_DATA_PATTERN = r'set_broadcaster_(\d+)'
+    CHOOSE_BROADCASTER_CALLBACK_DATA = r'choose_broadcaster'
     MANAGE_QUEUE_CALLBACK_DATA = r'add_to_queue'
     BACK_CALLBACK_DATA = r'back'
     BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA = r'back_from_add_to_queue'
@@ -257,16 +265,18 @@ class BotLogicRadio(BotLogic):
                 cls.LIST_STATE: [list_handler, create_handler, edit_handler],
                 cls.SET_FIELDS_STATE: [
                     CallbackQueryHandler(cls.set_name_start_action, pattern=cls.SET_NAME_CALLBACK_DATA),
-                    CallbackQueryHandler(cls.set_title_template_start_action, pattern=cls.SET_TITLE_TEMPLATE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.set_title_template_start_action,
+                                         pattern=cls.SET_TITLE_TEMPLATE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.save_action, pattern=cls.SAVE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.edit_back_action, pattern=cls.EDIT_BACK_CALLBACK_DATA),
                     CallbackQueryHandler(cls.manage_queue_action, pattern=cls.MANAGE_QUEUE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.manage_queue_stop_air_action, pattern=cls.STOP_AIR_CALLBACK_DATA),
                     CallbackQueryHandler(cls.manage_queue_start_air_action, pattern=cls.START_AIR_CALLBACK_DATA),
-                    # todo: action to set chat or channel to broadcast
+                    CallbackQueryHandler(cls.choose_broadcaster_action, pattern=cls.CHOOSE_BROADCASTER_CALLBACK_DATA),
                 ],
                 cls.MANAGE_QUEUE_CALLBACK_STATE: [
-                    CallbackQueryHandler(cls.back_from_add_to_queue_action, pattern=cls.BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.back_from_add_to_queue_action,
+                                         pattern=cls.BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.unselect_down_action, pattern=cls.UNSELECT_DOWN_CALLBACK_DATA),
                     CallbackQueryHandler(cls.select_down_action, pattern=cls.SELECT_DOWN_CALLBACK_DATA),
                     CallbackQueryHandler(cls.unselect_up_action, pattern=cls.UNSELECT_UP_CALLBACK_DATA),
@@ -280,6 +290,9 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.prev_page_action, pattern=cls.PREV_PAGE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.next_page_action, pattern=cls.NEXT_PAGE_CALLBACK_DATA),
                     MessageHandler(Filters.all, cls.add_to_queue_upload_action),
+                ],
+                cls.CHOOSE_BROADCASTER_CALLBACK_STATE: [
+                    CallbackQueryHandler(cls.set_broadcaster_action, pattern=cls.SET_BROADCASTER_CALLBACK_DATA_PATTERN),
                 ],
                 cls.SET_FIELDS_TEXT_STATE: [MessageHandler(Filters.text, cls.set_fields_text_action)]
             },
@@ -755,8 +768,7 @@ class BotLogicRadio(BotLogic):
                 radio_to_user.user = radio_user
                 radio_to_user.radio = radio
                 radio_to_user.save()
-
-            saved = True
+                saved = True
         except Exception as e:
             pass
 
@@ -811,8 +823,12 @@ class BotLogicRadio(BotLogic):
 
     @classmethod
     def get_data_strings(cls, radio):
-        data_strings = [_('Name**: %s') % (radio.name if radio.name else r'—',),
-                        _('Title Template: %s') % (radio.title_template if radio.title_template else r'—',)]
+        data_strings = [
+            _('Name**: *%s*') % (radio.name if radio.name else r'—',),
+            _('Title Template: *%s*') % (radio.title_template if radio.title_template else r'—',),
+            _('Broadcaster: *%s*') % (radio.broadcast_user.uid if radio.broadcast_user else r'—',),
+        ]
+
         return data_strings
 
     @classmethod
@@ -873,6 +889,12 @@ class BotLogicRadio(BotLogic):
                         callback_data='blank'),
                 )
         keyboard.append(on_air_row)
+
+        keyboard.append([
+            InlineKeyboardButton(
+                _('Choose Broadcaster'),
+                callback_data=cls.CHOOSE_BROADCASTER_CALLBACK_DATA),
+        ])
 
         keyboard.append([
             InlineKeyboardButton(
@@ -1041,3 +1063,73 @@ class BotLogicRadio(BotLogic):
 
         cls.context.bot.edit_message_reply_markup(cls.update.effective_chat.id,
                                                   message_id, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    @classmethod
+    def get_broadcaster_keyboard(cls):
+        broadcasters = get_owned_broadcasters(cls.telegram_user, 1, 20)
+        # todo: create pagination
+
+        keyboard = []
+        for broadcaster in broadcasters:
+            keyboard.append([
+                InlineKeyboardButton(
+                    _(str(broadcaster.uid) if broadcaster.uid else str(broadcaster.id)),
+                    callback_data=cls.SET_BROADCASTER_CALLBACK_DATA % (broadcaster.id,))
+            ])
+
+        keyboard.append([
+            InlineKeyboardButton(
+                _('Back'),
+                callback_data=cls.BACK_CALLBACK_DATA),
+        ])
+
+        return keyboard
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def choose_broadcaster_action(cls, update: Update, context: CallbackContext):
+        context.bot.answer_callback_query(update.callback_query.id)
+
+        keyboard = cls.get_broadcaster_keyboard()
+
+        message = context.bot.send_message(
+            update.effective_chat.id,
+            text=_('Choose broadcaster.'),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        cls.bot_context.set_list_message(message.message_id)
+
+        return cls.CHOOSE_BROADCASTER_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def set_broadcaster_action(cls, update: Update, context: CallbackContext):
+        context.bot.answer_callback_query(update.callback_query.id)
+
+        match = re.match(cls.SET_BROADCASTER_CALLBACK_DATA_PATTERN, update.callback_query.data)
+        if match:
+            broadcaster_id = int(match.group(1))
+            broadcaster = BroadcastUser.objects.get(id=broadcaster_id)
+            model = cls.bot_context.get_actual_object()
+            model.broadcast_user = broadcaster
+            saved = False
+            with transaction.atomic():
+                model.save()
+                saved = True
+
+            if saved:
+                message = context.bot.send_message(
+                    update.effective_chat.id,
+                    text=_('Broadcaster is set.'),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                cls.bot_context.set_object_message_id(message.message_id)
+                cls.update_object_message()
+            else:
+                pass
+
+            return cls.SET_FIELDS_STATE
+        return cls.BACK_STATE
