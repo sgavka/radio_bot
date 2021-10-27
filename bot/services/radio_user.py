@@ -66,7 +66,8 @@ def add_file_to_queue(audio: Audio, radio: Radio) -> bool:
                 audio_file.title = audio.title
                 audio_file.author = audio.performer
                 audio_file.duration_seconds = audio.duration
-                audio_file.telegram_file_id = audio.file_unique_id
+                audio_file.telegram_file_id = audio.file_id
+                audio_file.telegram_unique_id = audio.file_unique_id
                 audio_file.file_name = audio.file_name
                 audio_file.size = audio.file_size
 

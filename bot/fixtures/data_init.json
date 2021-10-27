@@ -13,7 +13,6 @@
     "pk": 1,
     "fields": {
       "name": "Test",
-      "google_table_id": "https://docs.google.com/spreadsheets/d/1q9K66woY2jgnq-aVhvZAGwAXEslmExPpxfx6Fl2L6UI/edit#gid=0",
       "title_template": null
     }
   },
@@ -30,6 +29,46 @@
     "fields": {
       "user": 1,
       "radio": 1
+    }
+  },
+  {
+    "model": "bot.broadcastuser",
+    "pk": 1,
+    "fields": {
+      "api_id": 1740375,
+      "api_hash": "b439c8ce88a1f2aa463f60a8895f86da",
+      "phone_number": "+380993638187",
+      "id": 1
+    }
+  },
+  {
+    "model": "bot.broadcastuser",
+    "pk": 2,
+    "fields": {
+      "uid": 2057673468,
+      "api_id": 18217511,
+      "api_hash": "a89ec27a235fb147ff5d0457fe793d18",
+      "phone_number": "+380986746629",
+      "id": 2,
+      "status": 1
+    }
+  },
+  {
+    "model": "bot.broadcastuserowner",
+    "pk": 1,
+    "fields": {
+      "role": 1,
+      "broadcast_user_id": 1,
+      "telegram_user_id": 125095865
+    }
+  },
+  {
+    "model": "bot.broadcastuserowner",
+    "pk": 2,
+    "fields": {
+      "role": 1,
+      "broadcast_user_id": 2,
+      "telegram_user_id": 125095865
     }
   }
 ]

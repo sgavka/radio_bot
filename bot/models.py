@@ -9,22 +9,21 @@ class Bot(models.Model):
     token = models.CharField(max_length=255, blank=False)
 
 
-class TelegramAccount(models.Model):
-    uid = models.BigIntegerField(primary_key=True)
-    app_api_id = models.BigIntegerField()
-    app_api_hash = models.CharField(max_length=255, blank=False)
-    app_title = models.CharField(max_length=255, blank=True, null=True)
-    app_short_name = models.CharField(max_length=255, blank=True, null=True)
+class BroadcastUser(models.Model):
+    STATUS_NEED_TO_AUTH = 0
+    STATUS_IS_AUTH = 1
 
+    id = models.AutoField(primary_key=True)
+    uid = models.BigIntegerField(blank=True, null=True, unique=True)
+    api_id = models.BigIntegerField()
+    api_hash = models.CharField(max_length=255, blank=False)
+    phone_number = models.CharField(max_length=255, blank=False)
+    status = models.IntegerField(default=STATUS_NEED_TO_AUTH, blank=True, null=True)
 
-class Radio(models.Model):
-    name = models.CharField(max_length=255, blank=False)
-    title_template = models.TextField(blank=True, null=True)
-
-
-class RadioChat(models.Model):
-    uid = models.BigIntegerField(primary_key=True)
-    radio = models.ForeignKey(Radio, models.CASCADE)
+    def has_all_data_to_auth(self) -> bool:
+        if self.api_id and self.api_hash and self.phone_number:
+            return True
+        return False
 
 
 class TelegramUser(models.Model):
@@ -35,13 +34,78 @@ class TelegramUser(models.Model):
         return self.user.is_superuser
 
 
+class BroadcastUserOwner(models.Model):
+    ROLE_OWNER = 1
+    ROLE_HAVE_ACCESS = 2
+    ROLES = {
+        ROLE_OWNER: _('Owner'),
+        ROLE_HAVE_ACCESS: _('Have Access'),
+    }
+    role = models.IntegerField(default=ROLE_OWNER)
+
+    broadcast_user = models.ForeignKey(BroadcastUser, models.CASCADE)
+    telegram_user = models.ForeignKey(TelegramUser, models.CASCADE)
+
+
+class BroadcasterAuthQueue(models.Model):
+    STATUS_NEED_TO_AUTH = 0
+    STATUS_NEED_PASSWORD = 1
+    STATUS_NEED_TO_AUTH_WITH_PASSWORD = 2
+    STATUS_NEED_CODE = 3
+    STATUS_NEED_TO_AUTH_WITH_CODE = 4
+    STATUS_SUCCESS = 5
+    STATUS_ACCOUNT_IS_NOT_REGISTERED = 6
+    STATUS_PHONE_IS_INVALID = 7
+    STATUS_CODE_IS_INVALID = 8
+    STATUS_CODE_EXPIRED = 9
+    STATUS_PASSWORD_IS_INVALID = 10
+    STATUS_UNKNOWN_ERROR = 11
+    STATUS_END_AUTH_PROCESS = 12
+    STATUS_CANCELED = 13
+
+    id = models.AutoField(primary_key=True)
+    broadcast_user = models.ForeignKey(BroadcastUser, models.CASCADE)
+    status = models.IntegerField(default=STATUS_NEED_TO_AUTH)
+    password = models.CharField(max_length=255, blank=True, null=True)
+    code = models.CharField(max_length=255, blank=True, null=True)
+    phone_hash = models.CharField(max_length=255, blank=True, null=True)
+
+
+class Radio(models.Model):
+    STATUS_ON_AIR = 0
+    STATUS_NOT_ON_AIR = 1
+    STATUS_ASKING_FOR_BROADCAST = 2
+    STATUS_ASKING_FOR_STOP_BROADCAST = 3
+    STATUSES = {
+        STATUS_ON_AIR: 'On air',
+        STATUS_NOT_ON_AIR: 'Not on air',
+        STATUS_ASKING_FOR_BROADCAST: 'Asking for broadcast',
+        STATUS_ASKING_FOR_STOP_BROADCAST: 'Asking to stop broadcast',
+    }
+
+    name = models.CharField(max_length=255, blank=False)
+    title_template = models.TextField(blank=True, null=True)
+    status = models.IntegerField(default=STATUS_NOT_ON_AIR)
+
+    broadcast_user = models.ForeignKey(BroadcastUser, models.CASCADE, blank=True, null=True)
+    last_chat_id = models.BigIntegerField(blank=True, null=True)
+    last_message_id = models.BigIntegerField(blank=True, null=True)
+
+
+class RadioChat(models.Model):
+    uid = models.BigIntegerField(primary_key=True)
+    radio = models.ForeignKey(Radio, models.CASCADE)
+
+
 class UserToRadio(models.Model):
+    # user that create (or have access)
     user = models.ForeignKey(User, models.CASCADE)
     radio = models.ForeignKey(Radio, models.CASCADE)
 
 
 class AudioFile(models.Model):
     telegram_file_id = models.TextField(blank=True, null=True)
+    telegram_unique_id = models.TextField(blank=True, null=True)
     title = models.CharField(max_length=255, blank=True, null=True)
     author = models.CharField(max_length=255, blank=True, null=True)
     file_name = models.CharField(max_length=255, blank=True, null=True)

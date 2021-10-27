@@ -4,7 +4,7 @@ RUN mkdir /code
 WORKDIR /code
 
 # install packages
-RUN apt-get update && apt-get install -y gettext libgettextpo-dev
+RUN apt-get update && apt-get install -y gettext libgettextpo-dev ffmpeg
 RUN pip install --upgrade pip
 
 # Install Postgresql client V12

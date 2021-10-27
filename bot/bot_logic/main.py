@@ -5,12 +5,14 @@ from django.utils.translation import ugettext as _
 
 from bot.bot_logic.bot_logic import BotLogic
 from bot.bot_logic.radio import BotLogicRadio
+from bot.bot_logic.radio_telegram_account import BotLogicRadioTelegramAccount
 from bot.helpers import handlers_wrapper
 from bot.models import Bot
 
 
 class BotLogicMain(BotLogic):
     RADIO_CALLBACK_DATA = 'radio'
+    TELEGRAM_ACCOUNT_CALLBACK_DATA = 'telegram_account'
     ADMIN_CALLBACK_DATA = 'admin'
     BACK_CALLBACK_DATA = 'back'
 
@@ -22,11 +24,8 @@ class BotLogicMain(BotLogic):
         self.bot: Bot = None
 
     def select_bot(self):
-        bot = Bot.objects.first()
-        if not bot:
-            raise Exception('Bot must be set in DB!')
-
-        self.bot = bot
+        from bot.services.bot import get_bot_from_db
+        self.bot = get_bot_from_db()
 
     @classmethod
     def error_handler(cls, update: Update, context: CallbackContext):
@@ -56,12 +55,13 @@ class BotLogicMain(BotLogic):
             states={
                 self.RADIO_STATE: [
                     BotLogicRadio.get_conversation_handler(),
+                    BotLogicRadioTelegramAccount.get_conversation_handler(),
                     CallbackQueryHandler(self.enter_admin_section_handler, pattern=self.ADMIN_CALLBACK_DATA),
                 ],
                 self.ADMIN_STATE: [
                     CallbackQueryHandler(self.back_from_admin_handler, pattern=self.BACK_CALLBACK_DATA),
                     MessageHandler(Filters.all, self.admin_message_handler),
-                ]
+                ],
             },
             fallbacks=[]
         )
@@ -83,6 +83,9 @@ class BotLogicMain(BotLogic):
                 InlineKeyboardButton(
                     _('Radio List'),
                     callback_data=cls.RADIO_CALLBACK_DATA),
+                InlineKeyboardButton(
+                    _('Telegram Account List'),
+                    callback_data=cls.TELEGRAM_ACCOUNT_CALLBACK_DATA),
             ],
         ]
 

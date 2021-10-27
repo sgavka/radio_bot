@@ -1,16 +1,14 @@
 import re
-from functools import wraps
 from math import ceil
 
-from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from telegram import Update, ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, Message, MessageEntity
+from telegram import Update, ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, Message
 from telegram.error import BadRequest
 from telegram.ext import ConversationHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 from django.utils.translation import ugettext as _
 from bot.bot_logic.bot_logic import BotLogic, BotContext
-from bot.helpers import handlers_wrapper
+from bot.helpers import handlers_wrapper, create_user
 from bot.models import Radio, TelegramUser, UserToRadio, AudioFile, Queue
 from bot.services import radio_user
 from bot.services.radio_user import get_radio_queue, delete_queue_item, move_up_queue_item, move_down_queue_item, \
@@ -39,38 +37,21 @@ class BotContextRadio(BotContext):
     CREATE_ACTION = 'create'
     ADD_TO_QUEUE_ACTION = 'add_to_queue'
 
-    @classmethod
-    def wrapper(cls, function):
-        @wraps(function)
-        def wrapper(*args, **kwargs):
-            bot_logic: BotLogic = args[0]
-            bot_logic.bot_context = BotContextRadio(bot_logic)
-            return function(*args, **kwargs)
-
-        return wrapper
-
     def __init__(self, bot_logic: BotLogic):
-        self.bot_logic = bot_logic
-        self.chat_data = bot_logic.context.chat_data
-        self.radio = None
+        super().__init__(bot_logic)
+
         self.edit = None
         self.radio_object = None
         self.new_object = None
         self.actual_field = None
         self.object_message = None
 
-        self.init_context()
         self.init_edit_context()
 
-    def init_context(self):
-        if self.CONTEXT_NAME not in self.chat_data:
-            self.chat_data[self.CONTEXT_NAME] = {}
-        self.radio = self.chat_data[self.CONTEXT_NAME]
-
     def init_edit_context(self):
-        if self.EDIT_CONTEXT not in self.radio:
-            self.radio[self.EDIT_CONTEXT] = {}
-        self.edit = self.radio[self.EDIT_CONTEXT]
+        if self.EDIT_CONTEXT not in self.context:
+            self.context[self.EDIT_CONTEXT] = {}
+        self.edit = self.context[self.EDIT_CONTEXT]
 
     def set_manage_queue_pointer(self, pointer: tuple):
         if self.MANAGE_QUEUE_CONTEXT not in self.edit:
@@ -115,27 +96,27 @@ class BotContextRadio(BotContext):
         return self.edit[self.EDIT_OBJECT_CONTEXT]
 
     def set_edit_action(self):
-        self.radio[self.ACTION_CONTEXT] = self.EDIT_ACTION
+        self.context[self.ACTION_CONTEXT] = self.EDIT_ACTION
 
     def set_create_action(self):
-        self.radio[self.ACTION_CONTEXT] = self.CREATE_ACTION
+        self.context[self.ACTION_CONTEXT] = self.CREATE_ACTION
 
     def set_add_to_queue_action(self):
-        self.radio[self.ACTION_CONTEXT] = self.ADD_TO_QUEUE_ACTION
+        self.context[self.ACTION_CONTEXT] = self.ADD_TO_QUEUE_ACTION
 
     def get_action(self):
-        return self.radio[self.ACTION_CONTEXT]
+        return self.context[self.ACTION_CONTEXT]
 
     def is_edit_action(self):
-        return self.radio[self.ACTION_CONTEXT] is self.EDIT_ACTION
+        return self.context[self.ACTION_CONTEXT] is self.EDIT_ACTION
 
     def is_create_action(self):
-        return self.radio[self.ACTION_CONTEXT] is self.CREATE_ACTION
+        return self.context[self.ACTION_CONTEXT] is self.CREATE_ACTION
 
     def init_new_object(self):
-        if self.NEW_OBJECT_CONTEXT not in self.radio:
-            self.radio[self.NEW_OBJECT_CONTEXT] = Radio()
-        return self.radio[self.NEW_OBJECT_CONTEXT]
+        if self.NEW_OBJECT_CONTEXT not in self.context:
+            self.context[self.NEW_OBJECT_CONTEXT] = Radio()
+        return self.context[self.NEW_OBJECT_CONTEXT]
 
     def get_actual_object(self) -> Radio:
         action = self.get_action()
@@ -150,70 +131,70 @@ class BotContextRadio(BotContext):
         return False
 
     def set_actual_field(self, field_name):
-        self.radio[self.ACTUAL_FIELD_CONTEXT] = field_name
+        self.context[self.ACTUAL_FIELD_CONTEXT] = field_name
 
     def get_actual_field(self):
-        return self.radio[self.ACTUAL_FIELD_CONTEXT]
+        return self.context[self.ACTUAL_FIELD_CONTEXT]
 
     def set_queue_message_id(self, message_id):
-        self.radio[self.QUEUE_MESSAGE_CONTEXT] = message_id
+        self.context[self.QUEUE_MESSAGE_CONTEXT] = message_id
 
     def get_queue_message_id(self):
-        return self.radio[self.QUEUE_MESSAGE_CONTEXT]
+        return self.context[self.QUEUE_MESSAGE_CONTEXT]
 
     def add_queue_message_to_delete(self, message_id):
-        if self.QUEUE_MESSAGES_TO_DELETE_CONTEXT not in self.radio:
-            self.radio[self.QUEUE_MESSAGES_TO_DELETE_CONTEXT] = []
-        self.radio[self.QUEUE_MESSAGES_TO_DELETE_CONTEXT].append(message_id)
+        if self.QUEUE_MESSAGES_TO_DELETE_CONTEXT not in self.context:
+            self.context[self.QUEUE_MESSAGES_TO_DELETE_CONTEXT] = []
+        self.context[self.QUEUE_MESSAGES_TO_DELETE_CONTEXT].append(message_id)
 
     def delete_queue_messages(self):
-        for message_id in self.radio[self.QUEUE_MESSAGES_TO_DELETE_CONTEXT]:
+        for message_id in self.context[self.QUEUE_MESSAGES_TO_DELETE_CONTEXT]:
             try:
                 self.bot_logic.context.bot.delete_message(self.bot_logic.update.effective_chat.id, message_id)
             except BadRequest:
                 pass
-        del self.radio[self.QUEUE_MESSAGES_TO_DELETE_CONTEXT]
+        del self.context[self.QUEUE_MESSAGES_TO_DELETE_CONTEXT]
 
     def add_message_to_delete(self, message_id):
-        if self.MESSAGES_TO_DELETE_CONTEXT not in self.radio:
-            self.radio[self.MESSAGES_TO_DELETE_CONTEXT] = []
-        self.radio[self.MESSAGES_TO_DELETE_CONTEXT].append(message_id)
+        if self.MESSAGES_TO_DELETE_CONTEXT not in self.context:
+            self.context[self.MESSAGES_TO_DELETE_CONTEXT] = []
+        self.context[self.MESSAGES_TO_DELETE_CONTEXT].append(message_id)
 
     def delete_list_message(self):
-        if self.LIST_MESSAGE_CONTEXT in self.radio:
-            message_id = self.radio[self.LIST_MESSAGE_CONTEXT]
+        if self.LIST_MESSAGE_CONTEXT in self.context:
+            message_id = self.context[self.LIST_MESSAGE_CONTEXT]
             try:
                 self.bot_logic.context.bot.delete_message(self.bot_logic.update.effective_chat.id, message_id)
             except BadRequest:
                 pass
 
     def delete_messages(self):
-        for message_id in self.radio[self.MESSAGES_TO_DELETE_CONTEXT]:
+        for message_id in self.context[self.MESSAGES_TO_DELETE_CONTEXT]:
             try:
                 self.bot_logic.context.bot.delete_message(self.bot_logic.update.effective_chat.id, message_id)
             except BadRequest:
                 pass
-        del self.radio[self.MESSAGES_TO_DELETE_CONTEXT]
+        del self.context[self.MESSAGES_TO_DELETE_CONTEXT]
 
     def set_list_message(self, message_id):
-        self.radio[self.LIST_MESSAGE_CONTEXT] = message_id
+        self.context[self.LIST_MESSAGE_CONTEXT] = message_id
 
     def get_list_message(self):
-        return self.radio[self.LIST_MESSAGE_CONTEXT]
+        return self.context[self.LIST_MESSAGE_CONTEXT]
 
     def set_object_message_id(self, message_id):
-        self.radio[self.OBJECT_MESSAGE_CONTEXT] = message_id
+        self.context[self.OBJECT_MESSAGE_CONTEXT] = message_id
         self.add_message_to_delete(message_id)
 
     def get_object_message_id(self):
-        return self.radio[self.OBJECT_MESSAGE_CONTEXT]
+        return self.context[self.OBJECT_MESSAGE_CONTEXT]
 
     def clear_after_save(self):
         self.delete_messages()
-        del self.radio[self.OBJECT_MESSAGE_CONTEXT]
-        if self.NEW_OBJECT_CONTEXT in self.radio:
-            del self.radio[self.NEW_OBJECT_CONTEXT]
-        del self.radio[self.EDIT_CONTEXT]
+        del self.context[self.OBJECT_MESSAGE_CONTEXT]
+        if self.NEW_OBJECT_CONTEXT in self.context:
+            del self.context[self.NEW_OBJECT_CONTEXT]
+        del self.context[self.EDIT_CONTEXT]
 
 
 class BotLogicRadio(BotLogic):
@@ -261,6 +242,8 @@ class BotLogicRadio(BotLogic):
     DELETE_CALLBACK_DATA = 'delete'
     NEXT_PAGE_CALLBACK_DATA = 'next_page'
     PREV_PAGE_CALLBACK_DATA = 'prev_page'
+    STOP_AIR_CALLBACK_DATA = 'manage_queue_stop_air'
+    START_AIR_CALLBACK_DATA = 'manage_queue_start_air'
 
     @classmethod
     def get_conversation_handler(cls) -> ConversationHandler:
@@ -278,6 +261,9 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.save_action, pattern=cls.SAVE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.edit_back_action, pattern=cls.EDIT_BACK_CALLBACK_DATA),
                     CallbackQueryHandler(cls.manage_queue_action, pattern=cls.MANAGE_QUEUE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.manage_queue_stop_air_action, pattern=cls.STOP_AIR_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.manage_queue_start_air_action, pattern=cls.START_AIR_CALLBACK_DATA),
+                    # todo: action to set chat or channel to broadcast
                 ],
                 cls.MANAGE_QUEUE_CALLBACK_STATE: [
                     CallbackQueryHandler(cls.back_from_add_to_queue_action, pattern=cls.BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA),
@@ -488,10 +474,33 @@ class BotLogicRadio(BotLogic):
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def manage_queue_stop_air_action(cls, update: Update, context: CallbackContext):
+        radio = cls.bot_context.get_actual_object()
+        radio.status = Radio.STATUS_ASKING_FOR_STOP_BROADCAST
+        radio.save()
+        cls.update_object_message()
+        return cls.SET_FIELDS_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def manage_queue_start_air_action(cls, update: Update, context: CallbackContext):
+        radio = cls.bot_context.get_actual_object()
+        radio.status = Radio.STATUS_ASKING_FOR_BROADCAST
+        radio.save()
+        cls.update_object_message()
+        return cls.SET_FIELDS_STATE
+
+    @classmethod
     def get_queue_keyboard(cls):
         keyboard = []
 
         (pointer_start, pointer_end) = cls.bot_context.get_manage_queue_pointer()
+        is_selected_few_items = pointer_start != pointer_end
+        pointer_is_not_on_top = pointer_start > 0
+        is_selected_one_item = pointer_start == pointer_end
 
         # move line
         move_pointer_line = []
@@ -499,20 +508,23 @@ class BotLogicRadio(BotLogic):
             last_element_on_page = cls.bot_context.get_manage_queue_actual_items_on_page() - 1
         else:
             last_element_on_page = cls.MANAGE_QUEUE_ITEMS_ON_PAGE - 1
-        if pointer_start == pointer_end:
-            keyboard.append([
-                InlineKeyboardButton(
-                    _('Move pointer:'),
-                    callback_data='blank'
-                )
-            ])
-            if pointer_start > 0:
+        pointer_is_not_on_bottom = pointer_end < last_element_on_page
+
+        if is_selected_one_item:
+            if pointer_is_not_on_top or pointer_is_not_on_bottom:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        _('Move pointer:'),
+                        callback_data='blank'
+                    )
+                ])
+            if pointer_is_not_on_top:
                 move_pointer_line.append(
                     InlineKeyboardButton(
                         _('↑'),
                         callback_data=cls.MOVE_POINTER_UP_CALLBACK_DATA),
                 )
-            if pointer_end < last_element_on_page:
+            if pointer_is_not_on_bottom:
                 move_pointer_line.append(
                     InlineKeyboardButton(
                         _('↓'),
@@ -529,33 +541,34 @@ class BotLogicRadio(BotLogic):
 
         # select line
         select_line = []
-        keyboard.append([
-            InlineKeyboardButton(
-                _('Select items:'),
-                callback_data='blank'
-            )
-        ])
-        if pointer_start > 0 or pointer_start != pointer_end:
-            if pointer_start != pointer_end:
+        if pointer_is_not_on_top or is_selected_few_items or pointer_is_not_on_bottom:
+            keyboard.append([
+                InlineKeyboardButton(
+                    _('Select items:'),
+                    callback_data='blank'
+                )
+            ])
+        if pointer_is_not_on_top or is_selected_few_items:
+            if is_selected_few_items:
                 select_line.append(
                     InlineKeyboardButton(
                         _('⇣'),
                         callback_data=cls.UNSELECT_UP_CALLBACK_DATA),
                 )
-            if pointer_start > 0:
+            if pointer_is_not_on_top:
                 select_line.append(
                     InlineKeyboardButton(
                         _('↥'),
                         callback_data=cls.SELECT_UP_CALLBACK_DATA),
                 )
-        if pointer_end < last_element_on_page or pointer_start != pointer_end:
-            if pointer_end < last_element_on_page:
+        if pointer_is_not_on_bottom or is_selected_few_items:
+            if pointer_is_not_on_bottom:
                 select_line.append(
                     InlineKeyboardButton(
                         _('↧'),
                         callback_data=cls.SELECT_DOWN_CALLBACK_DATA),
                 )
-            if pointer_start != pointer_end:
+            if is_selected_few_items:
                 select_line.append(
                     InlineKeyboardButton(
                         _('⇡'),
@@ -571,14 +584,14 @@ class BotLogicRadio(BotLogic):
                 _('Delete'),
                 callback_data=cls.DELETE_CALLBACK_DATA),
         )
-        if pointer_start == pointer_end:
-            if pointer_start > 0:
+        if is_selected_one_item:
+            if pointer_is_not_on_top:
                 actions.append(
                     InlineKeyboardButton(
                         _('Move Up'),
                         callback_data=cls.MOVE_UP_CALLBACK_DATA),
                 )
-            if pointer_end < last_element_on_page:
+            if pointer_is_not_on_bottom:
                 actions.append(
                     InlineKeyboardButton(
                         _('Move Down'),
@@ -637,7 +650,7 @@ class BotLogicRadio(BotLogic):
             audio_file: AudioFile = queue.audio_file
 
             full_title = '%s' % (audio_file.get_full_title(),)
-            full_title = '[%s-%s] %s' % (queue.id, queue.sort, audio_file.get_full_title(),)
+            full_title = '[%s-%s] %s' % (queue.id, queue.sort, audio_file.get_full_title(),)  # todo: delete
             if pointer_start <= index <= pointer_end:
                 title = '*%s*' % (full_title,)
             else:
@@ -659,15 +672,13 @@ class BotLogicRadio(BotLogic):
                 message = context.bot.send_message(
                     update.effective_chat.id,
                     text=_('Thanks, file is added, you can continue or press Back.'),
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup(cls.get_queue_keyboard())
+                    parse_mode=ParseMode.MARKDOWN
                 )
             else:
                 message = context.bot.send_message(
                     update.effective_chat.id,
                     text=_('There is internal error, please try again.'),
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup(cls.get_queue_keyboard())
+                    parse_mode=ParseMode.MARKDOWN
                 )
             cls.bot_context.add_queue_message_to_delete(message.message_id)
             cls.update_queue_message()
@@ -714,10 +725,12 @@ class BotLogicRadio(BotLogic):
         radio_user = None
 
         if not hasattr(radio, 'telegram_account'):
-            telegram_user = TelegramUser.objects.get(uid=update.effective_user.id)
-            if not telegram_user:
-                user = User.objects.create_action()
-                telegram_user = TelegramUser.objects.create(uid=update.effective_user.id, user=user)
+            try:
+                telegram_user = TelegramUser.objects.get(uid=update.effective_user.id)
+            except TelegramUser.DoesNotExist:
+                with transaction.atomic():
+                    user = create_user(update.effective_user.username)
+                    telegram_user = TelegramUser.objects.create(uid=update.effective_user.id, user=user)
             radio_user = telegram_user.user
 
         saved = False
@@ -824,16 +837,42 @@ class BotLogicRadio(BotLogic):
                 callback_data=cls.SET_TITLE_TEMPLATE_CALLBACK_DATA),
         ]]
 
-        google_table_row = []
-
+        manage_queue_row = []
         if cls.bot_context.is_edit_action():
-            google_table_row.append(
+            manage_queue_row.append(
                 InlineKeyboardButton(
                     _('Manage Queue'),
                     callback_data=cls.MANAGE_QUEUE_CALLBACK_DATA),
             )
+        keyboard.append(manage_queue_row)
 
-        keyboard.append(google_table_row)
+        on_air_row = []
+        if cls.bot_context.is_edit_action():
+            if radio.status == Radio.STATUS_NOT_ON_AIR:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Start On-Air'),
+                        callback_data=cls.START_AIR_CALLBACK_DATA),
+                )
+            elif radio.status == Radio.STATUS_ON_AIR:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('%s On-Air (Stop)') % ("\U0001F534",),
+                        callback_data=cls.STOP_AIR_CALLBACK_DATA),
+                )
+            elif radio.status == Radio.STATUS_ASKING_FOR_BROADCAST:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('%s On-Air') % ("\U0001F7E0",),
+                        callback_data='blank'),
+                )
+            elif radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Stopping...'),
+                        callback_data='blank'),
+                )
+        keyboard.append(on_air_row)
 
         keyboard.append([
             InlineKeyboardButton(

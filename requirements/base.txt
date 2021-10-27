@@ -10,5 +10,6 @@ google-auth-httplib2
 google-auth-oauthlib
 cexprtk
 pyrogram
-pytgcalls
+pytgcalls[pyrogram]
 tgcrypto
+ffmpeg-python
