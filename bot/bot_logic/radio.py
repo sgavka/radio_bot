@@ -647,6 +647,8 @@ class BotLogicRadio(BotLogic):
                 callback_data=cls.BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA),
         ])
 
+        # todo: button to refresh queue list
+
         return keyboard
 
     @classmethod
@@ -662,8 +664,11 @@ class BotLogicRadio(BotLogic):
         for queue in queues:
             audio_file: AudioFile = queue.audio_file
 
-            full_title = '%s' % (audio_file.get_full_title(),)
-            full_title = '[%s-%s] %s' % (queue.id, queue.sort, audio_file.get_full_title(),)  # todo: delete
+            if queue.status == Queue.STATUS_PROCESSING:
+                full_title = '[%s-%s] [%s] %s' % (queue.id, queue.sort, _('Processing...'), audio_file.get_full_title())
+            else:
+                full_title = '%s' % (audio_file.get_full_title(),)
+                full_title = '[%s-%s] %s' % (queue.id, queue.sort, audio_file.get_full_title(),)  # todo: delete
             if pointer_start <= index <= pointer_end:
                 title = '*%s*' % (full_title,)
             else:
@@ -679,12 +684,30 @@ class BotLogicRadio(BotLogic):
     @BotContextRadio.wrapper
     def add_to_queue_upload_action(cls, update: Update, context: CallbackContext):
         message: Message = update.message
+        # todo: find audio file in replay message
         if message.audio is not None:
-            result = radio_user.add_file_to_queue(message.audio, cls.bot_context.get_actual_object())
+            result = radio_user.add_audio_file_to_queue(message.audio, cls.bot_context.get_actual_object())
             if result:
                 message = context.bot.send_message(
                     update.effective_chat.id,
-                    text=_('Thanks, file is added, you can continue or press Back.'),
+                    text=_('Thanks, audio file is added, you can continue or press Back.'),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                message = context.bot.send_message(
+                    update.effective_chat.id,
+                    text=_('There is internal error, please try again.'),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            cls.bot_context.add_queue_message_to_delete(message.message_id)
+            cls.update_queue_message()
+        elif message.voice is not None:
+            result = radio_user.add_voice_to_queue(message.voice, message.from_user, message.date,
+                                                   cls.bot_context.get_actual_object())
+            if result:
+                message = context.bot.send_message(
+                    update.effective_chat.id,
+                    text=_('Thanks, voice is added, you can continue or press Back.'),
                     parse_mode=ParseMode.MARKDOWN
                 )
             else:
@@ -1077,6 +1100,7 @@ class BotLogicRadio(BotLogic):
                     callback_data=cls.SET_BROADCASTER_CALLBACK_DATA % (broadcaster.id,))
             ])
 
+        # todo: create action for back
         keyboard.append([
             InlineKeyboardButton(
                 _('Back'),

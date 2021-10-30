@@ -1,38 +1,63 @@
 import asyncio
-import logging
 import os
-from typing import Dict
+from multiprocessing import Process
 
 import pyrogram
 import pytgcalls
 from django.core.management.base import BaseCommand
-from pyrogram.errors import SessionPasswordNeeded, RPCError
-
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext, Dispatcher, PicklePersistence, \
-    InlineQueryHandler, CallbackQueryHandler, MessageHandler, MessageFilter, Filters
-
-from pyrogram import Client, filters
-from pyrogram.utils import MAX_CHANNEL_ID
-
-from pytgcalls import GroupCall
+from pytgcalls.exceptions import GroupCallNotFoundError
+from pyrogram import Client, idle
 
 
 class Command(BaseCommand):
     TOKEN = os.environ.get('TELEGRAM_API_KEY')
-    INPUT_FILENAME = 'input.raw'
+    INPUT_FILENAME = 'data/now-play-audio/BQACAgIAAxkDAAIHcWF8RC3LULu_z0zSknsfBX1GPrHDAAJJFAACSdjgS-M7gIUrhJHVIQQ.raw'
     OUTPUT_FILENAME = 'output.raw'
 
-    async def main(self, client: Client):
-        await client.start()
+    async def playout_ended(self, group_call, file_name):
+        pass
+
+    async def main(self, client: Client = None):
+        client = Client('2057673468_account',
+                     api_id=18217511,
+                     api_hash='a89ec27a235fb147ff5d0457fe793d18',
+                     workdir='data/sessions'
+                     # ,test_mode=True
+                     )
+        is_authorized = await client.connect()
+        if not is_authorized:
+            pass
+        await client.initialize()
         while not client.is_connected:
             return
 
         try:
-            group_call = pytgcalls.GroupCall(client, self.INPUT_FILENAME, self.OUTPUT_FILENAME)
-            await group_call.start(-582672833)
-            await asyncio.sleep(15)
-            group_call.input_filename = None
+            group_call = False
+            is_handler_playout_ended_set = False
+            is_started = False
+            is_file_set = False
+            while True:
+                if group_call is False:
+                    group_call = pytgcalls.GroupCallFactory(client).get_file_group_call()
+
+                if not is_handler_playout_ended_set:
+                    group_call.on_playout_ended(self.playout_ended)
+                    is_handler_playout_ended_set = True
+
+                if not is_started:
+                    await group_call.start(-582672833)
+                    while not group_call.is_connected:  # after that the group call starts
+                        await asyncio.sleep(0.001)
+                    group_call.play_on_repeat = False
+                    is_started = True
+
+                if not is_file_set:
+                    group_call.input_filename = self.INPUT_FILENAME
+                    is_file_set = True
+
+                # await asyncio.sleep(0.001)
+            pass
+        except GroupCallNotFoundError as e:
             pass
         except Exception as e:
             pass
@@ -65,59 +90,15 @@ class Command(BaseCommand):
         pass
         await pyrogram.idle()
 
-    def login(
-        self,
-        phone: str,
-        code: str = "",
-        phone_hash: str = "",
-        password: str = "",
-        app = None
-    ) -> Dict:
-        if app is None:
-            app = Client("sgavka",
-                         api_id=1740375,
-                         api_hash='b439c8ce88a1f2aa463f60a8895f86da'
-                         )
-
-        try:
-            app.connect()
-            if not code:
-                code_result = app.send_code(phone)
-                if code_result:
-                    return {'status': False, 'phone_code_hash': code_result.phone_code_hash, 'app': app}
-                return {'status': False, 'app': app}
-            if code and phone_hash:
-                app.sign_in(phone_number=phone, phone_code_hash=phone_hash, phone_code=code)
-                return {'status': True, 'app': app}
-        except SessionPasswordNeeded:
-            if password:
-                app.password = password
-                app.sign_in(phone, phone_hash, code)
-                return {'status': True, 'app': app}
-            else:
-                return {'status': False, 'app': app}
-        except RPCError as e:
-            return {'status': False, 'message': e, 'app': app}
-        # finally:
-        #     app.disconnect()
-        return {'status': False, 'app': app}
+    def setup(self):
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(self.main())
 
     def handle(self, *args, **options):
-        phone_number = '+380993638187'
-        password = '199s5serhi2y4'
-        app = Client('sgavka',
-                     # bot_token='758816171:AAEEv_GxKGuSdOhxSgaU9NM-yMmM2L9x8fc',
-                     # phone_number=phone_number,
-                     # password=password,
-                     api_id=1740375,
-                     api_hash='b439c8ce88a1f2aa463f60a8895f86da'
-                     )
+        import logging
+        logging.basicConfig(level=logging.DEBUG)
 
-        # login_result = self.login(phone_number, '', '', password)
-        # if not login_result['status'] and login_result['phone_code_hash']:
-        #     code = str(input())
-        #     login_result = self.login(phone_number, code, login_result['phone_code_hash'], password)
-
-        # print(login_result)
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.main(app))
+        process = Process(target=self.setup)
+        process.start()
+        while True:
+            pass

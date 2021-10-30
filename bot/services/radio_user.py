@@ -1,7 +1,8 @@
-from django.db import transaction, IntegrityError, DatabaseError
+import datetime as datetime
+from django.db import transaction, DatabaseError
 from django.db.models import Q
-from telegram import Audio
-
+from telegram import Audio, Voice, User
+from django.utils.translation import ugettext as _
 from bot.models import UserToRadio, Radio, Queue, AudioFile
 
 
@@ -55,7 +56,7 @@ def count_of_queue_items(radio: Radio):
     ).count()
 
 
-def add_file_to_queue(audio: Audio, radio: Radio) -> bool:
+def add_audio_file_to_queue(audio: Audio, radio: Radio) -> bool:
     success = True
     try:
         with transaction.atomic():
@@ -71,22 +72,52 @@ def add_file_to_queue(audio: Audio, radio: Radio) -> bool:
                 audio_file.file_name = audio.file_name
                 audio_file.size = audio.file_size
 
-            queue = Queue()
-            queue.radio = radio
-            queue.audio_file = audio_file
-            last_sort = Queue.objects.filter(radio=radio).order_by('-sort').values('sort').first()
-            if last_sort:
-                last_sort = last_sort['sort'] + 1
-            else:
-                last_sort = 0
-            queue.sort = last_sort
-            queue.datetime_is_automatic = True
-            queue.on_air_always = False
-            queue.type = Queue.FILE_TYPE
-
-            audio_file.save()
-            queue.save()
+            _put_audio_file_to_queue(audio_file, radio)
     except DatabaseError as e:
         success = False
 
     return success
+
+
+def add_voice_to_queue(voice: Voice, user: User, datetime: datetime, radio: Radio) -> bool:
+    success = True
+    try:
+        with transaction.atomic():
+            try:
+                audio_file = AudioFile.objects.filter(telegram_file_id=voice.file_unique_id).get()
+            except AudioFile.DoesNotExist:
+                audio_file = AudioFile()
+                title = _('Voice at %s', ) % (datetime.strftime('%H:%M, %d.%m.%Y'),)
+                audio_file.title = title
+                author = _('%s %s') % (user.last_name, user.first_name)
+                audio_file.author = author
+                audio_file.duration_seconds = voice.duration
+                audio_file.telegram_file_id = voice.file_id
+                audio_file.telegram_unique_id = voice.file_unique_id
+                audio_file.file_name = _('%s — %s') % (author, title)
+                audio_file.size = voice.file_size
+
+            _put_audio_file_to_queue(audio_file, radio)
+    except DatabaseError as e:
+        success = False
+
+    return success
+
+
+def _put_audio_file_to_queue(audio_file, radio):
+    queue = Queue()
+    queue.radio = radio
+    queue.audio_file = audio_file
+    last_sort = Queue.objects.filter(radio=radio).order_by('-sort').values('sort').first()
+    if last_sort:
+        last_sort = last_sort['sort'] + 1
+    else:
+        last_sort = 0
+    queue.sort = last_sort
+    queue.datetime_is_automatic = True
+    queue.on_air_always = False
+    queue.type = Queue.FILE_TYPE
+    if audio_file.raw_telegram_file_id is not None:
+        queue.status = Queue.STATUS_IN_QUEUE
+    audio_file.save()
+    queue.save()

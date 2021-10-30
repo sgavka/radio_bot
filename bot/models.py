@@ -76,6 +76,7 @@ class Radio(models.Model):
     STATUS_NOT_ON_AIR = 1
     STATUS_ASKING_FOR_BROADCAST = 2
     STATUS_ASKING_FOR_STOP_BROADCAST = 3
+    STATUS_STARTING_BROADCAST = 4
     STATUSES = {
         STATUS_ON_AIR: 'On air',
         STATUS_NOT_ON_AIR: 'Not on air',
@@ -106,6 +107,8 @@ class UserToRadio(models.Model):
 class AudioFile(models.Model):
     telegram_file_id = models.TextField(blank=True, null=True)
     telegram_unique_id = models.TextField(blank=True, null=True)
+    raw_telegram_file_id = models.TextField(blank=True, null=True)
+    raw_telegram_unique_id = models.TextField(blank=True, null=True)  # todo: update migrations
     title = models.CharField(max_length=255, blank=True, null=True)
     author = models.CharField(max_length=255, blank=True, null=True)
     file_name = models.CharField(max_length=255, blank=True, null=True)
@@ -125,8 +128,9 @@ class Queue(models.Model):
     STATUS_IN_QUEUE = 0
     STATUS_HAS_ERRORS = 1
     STATUS_PLAYED = 2
-    STATUS_WAIT_TO_CALCULATE_START_DATETIME = 3
+    STATUS_WAIT_TO_CALCULATE_START_DATETIME = 3  # todo: this is really necessary?
     STATUS_DELETED = 4
+    STATUS_PROCESSING = 5
     STATUSES = {
         STATUS_IN_QUEUE: _('In queue'),
         STATUS_HAS_ERRORS: _('Has errors'),
@@ -142,7 +146,7 @@ class Queue(models.Model):
     datetime_is_automatic = models.BooleanField()
     on_air_always = models.BooleanField()  # only for streams
     type = models.IntegerField()
-    status = models.IntegerField(default=STATUS_WAIT_TO_CALCULATE_START_DATETIME)
+    status = models.IntegerField(default=STATUS_PROCESSING)
 
 
 class QueueDownloadSoundCloud(models.Model):

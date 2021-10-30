@@ -16,7 +16,9 @@ RUN set -x; \
 
 # install requiremnts
 COPY ./requirements /code/requirements
+RUN pip install --upgrade pip
 RUN pip install -r requirements/prod.txt
+RUN pip install -r requirements/prod.txt --upgrade
 
 COPY . /code/
 

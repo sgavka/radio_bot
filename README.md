@@ -84,3 +84,6 @@ Select new configuration and run Debug.
 
 `docker-compose -f /root/gavka_assistant_bot/docker-compose-prod.yml run web nohup python3 manage.py google_keep todo_reminder`
 -- every 1-2 hours.
+
+# ToDo
+- add all commands to readme.md
