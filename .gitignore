@@ -16,6 +16,7 @@ bot_states.prs
 
 # data folder
 /data/
+/downloads/
 
 # texts
 *.txt

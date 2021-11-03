@@ -1,6 +1,5 @@
 import re
 from math import ceil
-
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from telegram import Update, ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, Message
@@ -118,6 +117,10 @@ class BotContextRadio(BotContext):
         return self.context[self.ACTION_CONTEXT] is self.CREATE_ACTION
 
     def init_new_object(self):
+        self.context[self.NEW_OBJECT_CONTEXT] = Radio()
+        return self.context[self.NEW_OBJECT_CONTEXT]
+
+    def get_new_object(self):
         if self.NEW_OBJECT_CONTEXT not in self.context:
             self.context[self.NEW_OBJECT_CONTEXT] = Radio()
         return self.context[self.NEW_OBJECT_CONTEXT]
@@ -127,7 +130,7 @@ class BotContextRadio(BotContext):
         if action in [self.EDIT_ACTION, self.ADD_TO_QUEUE_ACTION]:
             return self.get_edited_object()
         elif action is self.CREATE_ACTION:
-            return self.init_new_object()
+            return self.get_new_object()
 
     def has_actual_object(self):
         if self.get_actual_object():
@@ -220,6 +223,7 @@ class BotLogicRadio(BotLogic):
     SET_BROADCASTER_CALLBACK_DATA = r'set_broadcaster_%s'
     SET_BROADCASTER_CALLBACK_DATA_PATTERN = r'set_broadcaster_(\d+)'
     CHOOSE_BROADCASTER_CALLBACK_DATA = r'choose_broadcaster'
+    CHOOSE_CHAT_TO_BROADCAST_CALLBACK_DATA = r'choose_chat_to_broadcast'
     MANAGE_QUEUE_CALLBACK_DATA = r'add_to_queue'
     BACK_CALLBACK_DATA = r'back'
     BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA = r'back_from_add_to_queue'
@@ -273,6 +277,8 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.manage_queue_stop_air_action, pattern=cls.STOP_AIR_CALLBACK_DATA),
                     CallbackQueryHandler(cls.manage_queue_start_air_action, pattern=cls.START_AIR_CALLBACK_DATA),
                     CallbackQueryHandler(cls.choose_broadcaster_action, pattern=cls.CHOOSE_BROADCASTER_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.choose_chat_to_broadcast_action,
+                                         pattern=cls.CHOOSE_CHAT_TO_BROADCAST_CALLBACK_DATA),
                 ],
                 cls.MANAGE_QUEUE_CALLBACK_STATE: [
                     CallbackQueryHandler(cls.back_from_add_to_queue_action,
@@ -850,6 +856,7 @@ class BotLogicRadio(BotLogic):
             _('Name**: *%s*') % (radio.name if radio.name else r'—',),
             _('Title Template: *%s*') % (radio.title_template if radio.title_template else r'—',),
             _('Broadcaster: *%s*') % (radio.broadcast_user.uid if radio.broadcast_user else r'—',),
+            _('Group/channel: *%s*') % (radio.chat_id if radio.chat_id else r'—',),
         ]
 
         return data_strings
@@ -883,7 +890,8 @@ class BotLogicRadio(BotLogic):
                     _('Manage Queue'),
                     callback_data=cls.MANAGE_QUEUE_CALLBACK_DATA),
             )
-        keyboard.append(manage_queue_row)
+        if len(manage_queue_row):
+            keyboard.append(manage_queue_row)
 
         on_air_row = []
         if cls.bot_context.is_edit_action():
@@ -911,13 +919,22 @@ class BotLogicRadio(BotLogic):
                         _('Stopping...'),
                         callback_data='blank'),
                 )
-        keyboard.append(on_air_row)
+        if len(on_air_row):
+            keyboard.append(on_air_row)
 
         keyboard.append([
             InlineKeyboardButton(
                 _('Choose Broadcaster'),
                 callback_data=cls.CHOOSE_BROADCASTER_CALLBACK_DATA),
         ])
+
+        if cls.bot_context.is_edit_action():
+            if radio.broadcast_user.status == BroadcastUser.STATUS_IS_AUTH:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        _('Choose group/channel'),
+                        callback_data=cls.CHOOSE_CHAT_TO_BROADCAST_CALLBACK_DATA),
+                ])
 
         keyboard.append([
             InlineKeyboardButton(
@@ -1011,7 +1028,7 @@ class BotLogicRadio(BotLogic):
 
     @classmethod
     def get_list_keyboard(cls):
-        radios = radio_user.get_user_radios(cls.telegram_user.user_id)
+        radios = radio_user.get_user_radios(int(cls.telegram_user.user_id))
         keyboard_radios = []
         for radio in radios:
             keyboard_radios.append([
@@ -1082,10 +1099,8 @@ class BotLogicRadio(BotLogic):
                                               cls.update.effective_chat.id,
                                               message_id,
                                               parse_mode=ParseMode.MARKDOWN,
+                                              reply_markup=InlineKeyboardMarkup(keyboard),
                                               disable_web_page_preview=True)
-
-        cls.context.bot.edit_message_reply_markup(cls.update.effective_chat.id,
-                                                  message_id, reply_markup=InlineKeyboardMarkup(keyboard))
 
     @classmethod
     def get_broadcaster_keyboard(cls):
@@ -1157,3 +1172,19 @@ class BotLogicRadio(BotLogic):
 
             return cls.SET_FIELDS_STATE
         return cls.BACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def choose_chat_to_broadcast_action(cls, update: Update, context: CallbackContext):
+        context.bot.answer_callback_query(update.callback_query.id)
+
+        cls.bot_context.set_actual_field('chat_id')
+        message = context.bot.send_message(
+            update.effective_chat.id,
+            text=_('Enter group/channel ID:'),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        cls.bot_context.add_message_to_delete(message.message_id)
+
+        return cls.SET_FIELDS_TEXT_STATE

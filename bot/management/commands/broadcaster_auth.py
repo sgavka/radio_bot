@@ -5,6 +5,7 @@ from pyrogram import Client
 from pyrogram.errors import SessionPasswordNeeded, RPCError, PhoneCodeExpired, BadRequest
 from pyrogram.types import TermsOfService, User
 from bot.models import BroadcastUser, BroadcasterAuthQueue
+from bot.services.telegram_sessions import get_tmp_session_name, get_session_directory, get_session_name
 
 
 class Command(BaseCommand):
@@ -17,21 +18,20 @@ class Command(BaseCommand):
                 BroadcasterAuthQueue.STATUS_NEED_TO_AUTH_WITH_CODE,
                 BroadcasterAuthQueue.STATUS_NEED_TO_AUTH_WITH_PASSWORD,
             ]).all()
+            # todo: maybe use subprocess there
             for broadcast_auth in broadcaster_queue:
                 self.login(broadcast_auth)
 
     def login(self, broadcast_auth: BroadcasterAuthQueue):
         # init sessions directory
-        sessions_directory = 'data/sessions'
-        if not os.path.exists(sessions_directory):
-            os.mkdir(sessions_directory)
+        sessions_directory = get_session_directory()
 
         # todo: remote after debugging
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
         # get client
-        session_name = self.get_tmp_session_name(broadcast_auth.id)
+        session_name = get_tmp_session_name(broadcast_auth.id)
         if session_name in self.apps.keys():
             app = self.apps[session_name]
         else:
@@ -103,9 +103,6 @@ class Command(BaseCommand):
         else:
             self.set_success(broadcast_auth, app)
 
-    def get_tmp_session_name(self, broadcast_auth_id):
-        return str(broadcast_auth_id) + '_queue_add_new'
-
     def set_success(self, broadcast_auth: BroadcasterAuthQueue, app: Client):
         user = app.get_me()
         if type(user) is User:
@@ -117,10 +114,10 @@ class Command(BaseCommand):
                 broadcast_auth.save()
                 broadcast_auth.broadcast_user.save()
 
-            session_name = self.get_tmp_session_name(broadcast_auth.id)
+            session_name = get_tmp_session_name(broadcast_auth.id)
             session_path = 'data/sessions/'
             os.rename(
                 session_path + session_name + '.session',
-                session_path + str(broadcast_auth.broadcast_user.uid) + '_account.session'
+                session_path + get_session_name(broadcast_auth.broadcast_user.uid) + '.session'
             )
             del self.apps[session_name]
