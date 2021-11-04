@@ -99,8 +99,9 @@ class QueueGroupCall(object):
     async def start(self, chat_id: int):
         if not self._is_started:
             # await self.group_call.leave_current_group_call()
-            await self.group_call.start(chat_id)  # todo: get group id from DB
+            await self.group_call.start(chat_id, join_as=chat_id)
             while not self.group_call.is_connected:  # after that the group call starts
+                # todo: check pyrogram.errors.exceptions.bad_request_400.BadRequest: [400 Bad Request]: [400 JOIN_AS_PEER_INVALID] (caused by "phone.JoinGroupCall")
                 await asyncio.sleep(0.001)
             self._is_started = True
 
