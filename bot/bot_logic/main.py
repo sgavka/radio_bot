@@ -63,7 +63,10 @@ class BotLogicMain(BotLogic):
                     MessageHandler(Filters.all, self.admin_message_handler),
                 ],
             },
-            fallbacks=[]
+            fallbacks=[],
+            map_to_parent={
+                BotLogicMain.RADIO_STATE: BotLogicMain.RADIO_STATE,
+            }
         )
 
         dispatcher.add_handler(conversation_handler)

@@ -7,7 +7,7 @@ from bot.models import UserToRadio, Radio, Queue, AudioFile
 
 
 def get_user_radios(user_id: int):
-    radios_id = UserToRadio.objects.filter(user_id=user_id).values('radio_id').all()
+    radios_id = UserToRadio.objects.filter(user_id=user_id).values('radio_id').order_by('id').all()
     radios = Radio.objects.filter(id__in=radios_id).all()
     return radios
 

@@ -71,6 +71,14 @@ class BotContextRadioTelegramAccount(BotContext):
     def get_list_message(self):
         return self.list[self.LIST_MESSAGE_CONTEXT]
 
+    def delete_list_message(self):
+        if self.LIST_MESSAGE_CONTEXT in self.list:
+            message_id = self.list[self.LIST_MESSAGE_CONTEXT]
+            try:
+                self.bot_logic.context.bot.delete_message(self.bot_logic.update.effective_chat.id, message_id)
+            except BadRequest:
+                pass
+
     def set_create_action(self):
         self.context[self.ACTION_CONTEXT] = self.CREATE_ACTION
 
@@ -297,6 +305,13 @@ class BotLogicRadioTelegramAccount(BotLogic):
             InlineKeyboardButton(
                 _('Create New'),
                 callback_data=cls.CREATE_CALLBACK_DATA
+            ),
+        ])
+
+        keyboard.append([
+            InlineKeyboardButton(
+                _('Back'),
+                callback_data=cls.BACK_CALLBACK_DATA
             ),
         ])
 
@@ -748,7 +763,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
     @handlers_wrapper
     @BotContextRadioTelegramAccount.wrapper
     def back_action(cls, update: Update, context: CallbackContext):
-        # todo: cls.bot_context.delete_list_message()
+        cls.bot_context.delete_list_message()
         return cls.BACK_STATE
 
     @classmethod

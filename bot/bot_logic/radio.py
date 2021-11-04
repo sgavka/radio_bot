@@ -224,9 +224,11 @@ class BotLogicRadio(BotLogic):
     SET_BROADCASTER_CALLBACK_DATA_PATTERN = r'set_broadcaster_(\d+)'
     CHOOSE_BROADCASTER_CALLBACK_DATA = r'choose_broadcaster'
     CHOOSE_CHAT_TO_BROADCAST_CALLBACK_DATA = r'choose_chat_to_broadcast'
+    CHOOSE_CHAT_TO_DOWNLOAD_CALLBACK_DATA = r'choose_chat_to_download'
     MANAGE_QUEUE_CALLBACK_DATA = r'add_to_queue'
     BACK_CALLBACK_DATA = r'back'
     BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA = r'back_from_add_to_queue'
+    REFRESH_QUEUE_LIST_CALLBACK_DATA = r'refresh_queue_list_callback_data'
     EDIT_BACK_CALLBACK_DATA = r'edit_back'
     SAVE_CALLBACK_DATA = r'save'
     CREATE_CALLBACK_DATA = r'create'
@@ -279,6 +281,8 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.choose_broadcaster_action, pattern=cls.CHOOSE_BROADCASTER_CALLBACK_DATA),
                     CallbackQueryHandler(cls.choose_chat_to_broadcast_action,
                                          pattern=cls.CHOOSE_CHAT_TO_BROADCAST_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.choose_chat_to_download_action,
+                                         pattern=cls.CHOOSE_CHAT_TO_DOWNLOAD_CALLBACK_DATA),
                 ],
                 cls.MANAGE_QUEUE_CALLBACK_STATE: [
                     CallbackQueryHandler(cls.back_from_add_to_queue_action,
@@ -295,6 +299,7 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.delete_action, pattern=cls.DELETE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.prev_page_action, pattern=cls.PREV_PAGE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.next_page_action, pattern=cls.NEXT_PAGE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.refresh_queue_list_action, pattern=cls.REFRESH_QUEUE_LIST_CALLBACK_DATA),
                     MessageHandler(Filters.all, cls.add_to_queue_upload_action),
                 ],
                 cls.CHOOSE_BROADCASTER_CALLBACK_STATE: [
@@ -495,6 +500,13 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
+    def refresh_queue_list_action(cls, update: Update, context: CallbackContext):
+        cls.update_queue_message()
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
     def manage_queue_stop_air_action(cls, update: Update, context: CallbackContext):
         radio = cls.bot_context.get_actual_object()
         radio.status = Radio.STATUS_ASKING_FOR_STOP_BROADCAST
@@ -651,6 +663,12 @@ class BotLogicRadio(BotLogic):
             InlineKeyboardButton(
                 _('Back'),
                 callback_data=cls.BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA),
+        ])
+
+        keyboard.append([
+            InlineKeyboardButton(
+                _('\U0001F504'),
+                callback_data=cls.REFRESH_QUEUE_LIST_CALLBACK_DATA),
         ])
 
         # todo: button to refresh queue list
@@ -857,6 +875,7 @@ class BotLogicRadio(BotLogic):
             _('Title Template: *%s*') % (radio.title_template if radio.title_template else r'—',),
             _('Broadcaster: *%s*') % (radio.broadcast_user.uid if radio.broadcast_user else r'—',),
             _('Group/channel: *%s*') % (radio.chat_id if radio.chat_id else r'—',),
+            _('Download chat: *%s*') % (radio.download_chat_id if radio.download_chat_id else r'—',),
         ]
 
         return data_strings
@@ -934,6 +953,11 @@ class BotLogicRadio(BotLogic):
                     InlineKeyboardButton(
                         _('Choose group/channel'),
                         callback_data=cls.CHOOSE_CHAT_TO_BROADCAST_CALLBACK_DATA),
+                ])
+                keyboard.append([
+                    InlineKeyboardButton(
+                        _('Choose group/channel to download'),
+                        callback_data=cls.CHOOSE_CHAT_TO_DOWNLOAD_CALLBACK_DATA),
                 ])
 
         keyboard.append([
@@ -1183,6 +1207,22 @@ class BotLogicRadio(BotLogic):
         message = context.bot.send_message(
             update.effective_chat.id,
             text=_('Enter group/channel ID:'),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        cls.bot_context.add_message_to_delete(message.message_id)
+
+        return cls.SET_FIELDS_TEXT_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def choose_chat_to_download_action(cls, update: Update, context: CallbackContext):
+        context.bot.answer_callback_query(update.callback_query.id)
+
+        cls.bot_context.set_actual_field('download_chat_id')
+        message = context.bot.send_message(
+            update.effective_chat.id,
+            text=_('Enter group/channel ID there we will download audio files:'),
             parse_mode=ParseMode.MARKDOWN,
         )
         cls.bot_context.add_message_to_delete(message.message_id)

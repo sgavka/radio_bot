@@ -12,9 +12,7 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait, ChannelInvalid
 from pyrogram.utils import get_channel_id
 from pytgcalls.exceptions import GroupCallNotFoundError
-from telegram import Bot
 from bot.models import Radio, BroadcastUser, Queue
-from bot.services.bot import get_bot_from_db
 
 
 class QueueStorage(object):

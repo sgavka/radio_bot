@@ -90,7 +90,7 @@ class Radio(models.Model):
 
     broadcast_user = models.ForeignKey(BroadcastUser, models.CASCADE, blank=True, null=True)
     chat_id = models.BigIntegerField(blank=True, null=True)
-    download_chat_id = models.BigIntegerField(blank=True, null=True)  # todo: add to radio edition
+    download_chat_id = models.BigIntegerField(blank=True, null=True)
     last_chat_id = models.BigIntegerField(blank=True, null=True)
     last_message_id = models.BigIntegerField(blank=True, null=True)
 
