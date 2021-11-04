@@ -234,6 +234,7 @@ class BotLogicRadio(BotLogic):
     CREATE_CALLBACK_DATA = r'create'
     EDIT_CALLBACK_DATA = r'edit_%s'
     EDIT_CALLBACK_DATA_PATTERN = r'edit_(\d+)'
+    BACK_FROM_CHOOSE_BROADCASTER_CALLBACK_DATA = r'back_from_choose_broadcaster'
 
     create_message_text = _('To create new object select field and set data.\nData:\n%s')
     edit_message_text = _('It\'s your radio *%s*.\n%s\nSelect some action.')
@@ -304,6 +305,8 @@ class BotLogicRadio(BotLogic):
                 ],
                 cls.CHOOSE_BROADCASTER_CALLBACK_STATE: [
                     CallbackQueryHandler(cls.set_broadcaster_action, pattern=cls.SET_BROADCASTER_CALLBACK_DATA_PATTERN),
+                    CallbackQueryHandler(cls.back_from_choose_broadcaster_action,
+                                         pattern=cls.BACK_FROM_CHOOSE_BROADCASTER_CALLBACK_DATA),
                 ],
                 cls.SET_FIELDS_TEXT_STATE: [MessageHandler(Filters.text, cls.set_fields_text_action)]
             },
@@ -335,6 +338,15 @@ class BotLogicRadio(BotLogic):
 
         context.bot.answer_callback_query(update.callback_query.id)
         return cls.BACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def back_from_choose_broadcaster_action(cls, update: Update, context: CallbackContext):
+        cls.bot_context.delete_list_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
+        return cls.SET_FIELDS_STATE
 
     @classmethod
     @handlers_wrapper
@@ -698,8 +710,6 @@ class BotLogicRadio(BotLogic):
                 _('\U0001F504'),
                 callback_data=cls.REFRESH_QUEUE_LIST_CALLBACK_DATA),
         ])
-
-        # todo: button to refresh queue list
 
         return keyboard
 
@@ -1169,11 +1179,11 @@ class BotLogicRadio(BotLogic):
                     callback_data=cls.SET_BROADCASTER_CALLBACK_DATA % (broadcaster.id,))
             ])
 
-        # todo: create action for back
         keyboard.append([
             InlineKeyboardButton(
                 _('Back'),
-                callback_data=cls.BACK_CALLBACK_DATA),
+                callback_data=cls.BACK_FROM_CHOOSE_BROADCASTER_CALLBACK_DATA
+            ),
         ])
 
         return keyboard
