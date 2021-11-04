@@ -26,7 +26,7 @@ class Command(BaseCommand):
         # init sessions directory
         sessions_directory = get_session_directory()
 
-        # todo: remote after debugging
+        # todo: remove after debugging
         import logging
         logging.basicConfig(level=logging.DEBUG)
 

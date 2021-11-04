@@ -77,11 +77,19 @@ class Radio(models.Model):
     STATUS_ASKING_FOR_BROADCAST = 2
     STATUS_ASKING_FOR_STOP_BROADCAST = 3
     STATUS_STARTING_BROADCAST = 4
+    STATUS_ASKING_FOR_PAUSE_BROADCAST = 5
+    STATUS_ASKING_FOR_RESUME_BROADCAST = 6
+    STATUS_ON_PAUSE = 7
+    STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED = 8
     STATUSES = {
         STATUS_ON_AIR: 'On air',
         STATUS_NOT_ON_AIR: 'Not on air',
         STATUS_ASKING_FOR_BROADCAST: 'Asking for broadcast',
+        STATUS_STARTING_BROADCAST: 'Starting broadcast',
+        STATUS_ASKING_FOR_PAUSE_BROADCAST: 'Asking to pause broadcast',
         STATUS_ASKING_FOR_STOP_BROADCAST: 'Asking to stop broadcast',
+        STATUS_ASKING_FOR_RESUME_BROADCAST: 'Asking to resume broadcast',
+        STATUS_ASKING_FOR_RESUME_BROADCAST: 'On pause',
     }
 
     name = models.CharField(max_length=255, blank=False)

@@ -95,7 +95,7 @@ class Command(BaseCommand):
         with open(file_path_raw, 'rb') as file:
             try:
                 message: Message = telegram_bot.send_document(
-                    chat_id=radio.download_chat_id,  # todo: need another chat for that purpose
+                    chat_id=radio.download_chat_id,
                     document=file,
                     filename=audio_file.file_name,
                     caption=audio_file.title,

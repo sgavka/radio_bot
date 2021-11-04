@@ -367,6 +367,14 @@ class BotLogicRadioTelegramAccount(BotLogic):
             _('API Hash**: *%s*') % (model.api_hash if model.api_hash else r'—',),
             _('API Phone Number**: *%s*') % (model.phone_number if model.phone_number else r'—',),
         ]
+
+        if model.id:
+            data_strings.append(
+                _('Auth status**: *%s*') % (_('authorized')
+                                            if model.status == BroadcastUser.STATUS_IS_AUTH
+                                            else _('Need to authorize'),)
+            )
+
         return data_strings
 
     @classmethod
@@ -399,8 +407,8 @@ class BotLogicRadioTelegramAccount(BotLogic):
                 callback_data=cls.SET_PHONE_NUMBER_CALLBACK_DATA),
         ]]
 
-        # todo: show Auth only if BroadcastUser is not authorized
-        if broadcast_user.has_all_data_to_auth() and broadcast_user.id is not None:
+        if broadcast_user.has_all_data_to_auth() \
+                and broadcast_user.id is not None and broadcast_user.status != BroadcastUser.STATUS_IS_AUTH:
             keyboard.append([
                 InlineKeyboardButton(
                     _('Auth'),
@@ -434,13 +442,15 @@ class BotLogicRadioTelegramAccount(BotLogic):
                                               message_id,
                                               parse_mode=ParseMode.MARKDOWN,
                                               disable_web_page_preview=True)
-        cls.context.bot.edit_message_reply_markup(cls.update.effective_chat.id,
-                                                  message_id, reply_markup=InlineKeyboardMarkup(keyboard))
+        try:
+            cls.context.bot.edit_message_reply_markup(cls.update.effective_chat.id,
+                                                      message_id, reply_markup=InlineKeyboardMarkup(keyboard))
+        except BadRequest:
+            pass
 
     @classmethod
     def get_edit_message_text(cls, model: BroadcastUser):
         data_strings = cls.get_data_strings(model)
-        # todo: show auth status
         if model.id is None:
             text = cls.edit_message_text % (_('Before Auth you mast save Broadcaster.'), '\n'.join(data_strings))
         elif model.id is not None:
@@ -590,7 +600,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
                     parse_mode=ParseMode.MARKDOWN
                 )
                 cls.bot_context.add_message_to_delete(message.message_id)
-                # todo: update model message
+                cls.update_object_message()
 
                 return cls.SET_FIELDS_STATE
             elif auth_queue.status == BroadcasterAuthQueue.STATUS_ACCOUNT_IS_NOT_REGISTERED:
@@ -639,8 +649,8 @@ class BotLogicRadioTelegramAccount(BotLogic):
                 message = context.bot.send_message(
                     update.effective_chat.id,
                     text=_(
-                        'There is unknown error, check your data and try Auth again. If there is steel error please write '
-                        'to @sgavka.'),
+                        'There is unknown error, check your data and try Auth again. If there is steel error please '
+                        'write to @sgavka.'),
                     parse_mode=ParseMode.MARKDOWN
                 )
                 cls.bot_context.add_message_to_delete(message.message_id)
@@ -657,7 +667,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
                 return cls.SET_FIELDS_FOR_AUTH_STATE
             elif auth_queue.status == BroadcasterAuthQueue.STATUS_END_AUTH_PROCESS:
                 return cls.SET_FIELDS_STATE
-            # todo: send another code
+            # todo: add button send another code
 
     @classmethod
     @handlers_wrapper
@@ -727,8 +737,6 @@ class BotLogicRadioTelegramAccount(BotLogic):
             saved = True
 
         if saved:
-            context.bot.answer_callback_query(update.callback_query.id, _('Broadcaster was saved!'))  # todo: dont work
-
             cls.update_list_message(update, context)
             cls.bot_context.clear_after_save()
 
