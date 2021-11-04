@@ -87,3 +87,7 @@ Select new configuration and run Debug.
 
 # ToDo
 - add all commands to readme.md
+- make bot to broadcast as channel
+- make visible then model is not saved
+- add validation for chat_id (is group or channel) & download_chat_id (is chat)
+- add exception handlers for cases then is setted invalid chat_id/channel_id

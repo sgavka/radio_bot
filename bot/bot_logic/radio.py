@@ -323,7 +323,8 @@ class BotLogicRadio(BotLogic):
     @BotContextRadio.wrapper
     def edit_back_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.clear_after_save()
-        context.bot.answer_callback_query(update.callback_query.id, _('Back! Changes was cleared.'))
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.LIST_STATE
 
     @classmethod
@@ -331,6 +332,8 @@ class BotLogicRadio(BotLogic):
     @BotContextRadio.wrapper
     def back_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.delete_list_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.BACK_STATE
 
     @classmethod
@@ -340,6 +343,8 @@ class BotLogicRadio(BotLogic):
         cls.bot_context.delete_queue_messages()
         cls.bot_context.set_edit_action()
         cls.bot_context.set_manage_queue_pointer((0, 0,))
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_STATE
 
     @classmethod
@@ -352,6 +357,7 @@ class BotLogicRadio(BotLogic):
             cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
             cls.update_queue_message()
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -364,6 +370,7 @@ class BotLogicRadio(BotLogic):
             cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
             cls.update_queue_message()
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -376,6 +383,7 @@ class BotLogicRadio(BotLogic):
             cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
             cls.update_queue_message()
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -388,6 +396,7 @@ class BotLogicRadio(BotLogic):
             cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
             cls.update_queue_message()
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -399,6 +408,7 @@ class BotLogicRadio(BotLogic):
         cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
         cls.update_queue_message()
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -412,6 +422,7 @@ class BotLogicRadio(BotLogic):
             cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
             cls.update_queue_message()
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -425,6 +436,7 @@ class BotLogicRadio(BotLogic):
             cls.bot_context.set_manage_queue_pointer((pointer_start, pointer_end,))
             cls.update_queue_message()
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -442,6 +454,8 @@ class BotLogicRadio(BotLogic):
         cls.bot_context.set_manage_queue_pointer((pointer_start + 1, pointer_end + 1))
         move_down_queue_item(item)
         cls.update_queue_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -459,6 +473,8 @@ class BotLogicRadio(BotLogic):
         cls.bot_context.set_manage_queue_pointer((pointer_start - 1, pointer_end - 1))
         move_up_queue_item(item)
         cls.update_queue_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -477,6 +493,8 @@ class BotLogicRadio(BotLogic):
         for item in items:
             delete_queue_item(item)
         cls.update_queue_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -486,6 +504,8 @@ class BotLogicRadio(BotLogic):
         page = cls.bot_context.get_manage_queue_page()
         cls.bot_context.set_manage_queue_page(page + 1)
         cls.update_queue_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -495,6 +515,8 @@ class BotLogicRadio(BotLogic):
         page = cls.bot_context.get_manage_queue_page()
         cls.bot_context.set_manage_queue_page(page - 1)
         cls.update_queue_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -502,6 +524,8 @@ class BotLogicRadio(BotLogic):
     @BotContextRadio.wrapper
     def refresh_queue_list_action(cls, update: Update, context: CallbackContext):
         cls.update_queue_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -512,6 +536,8 @@ class BotLogicRadio(BotLogic):
         radio.status = Radio.STATUS_ASKING_FOR_STOP_BROADCAST
         radio.save()
         cls.update_object_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_STATE
 
     @classmethod
@@ -522,6 +548,8 @@ class BotLogicRadio(BotLogic):
         radio.status = Radio.STATUS_ASKING_FOR_BROADCAST
         radio.save()
         cls.update_object_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_STATE
 
     @classmethod
@@ -742,6 +770,7 @@ class BotLogicRadio(BotLogic):
                 )
             cls.bot_context.add_queue_message_to_delete(message.message_id)
             cls.update_queue_message()
+
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
@@ -774,13 +803,13 @@ class BotLogicRadio(BotLogic):
         cls.bot_context.add_queue_message_to_delete(message.message_id)
         cls.bot_context.set_queue_message_id(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.MANAGE_QUEUE_CALLBACK_STATE
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
     def save_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
         radio = cls.bot_context.get_actual_object()
         radio_user = None
 
@@ -807,6 +836,8 @@ class BotLogicRadio(BotLogic):
                     parse_mode=ParseMode.MARKDOWN
                 )
                 cls.bot_context.add_message_to_delete(message.message_id)
+
+                context.bot.answer_callback_query(update.callback_query.id)
                 return cls.SET_FIELDS_STATE
 
             with transaction.atomic():
@@ -825,6 +856,7 @@ class BotLogicRadio(BotLogic):
             cls.update_list_message()
             cls.bot_context.clear_after_save()
 
+            context.bot.answer_callback_query(update.callback_query.id)
             return cls.LIST_STATE
         else:
             message = context.bot.send_message(
@@ -834,14 +866,13 @@ class BotLogicRadio(BotLogic):
             )
             cls.bot_context.add_message_to_delete(message.message_id)
 
+            context.bot.answer_callback_query(update.callback_query.id)
             return ConversationHandler.END
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
     def create_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         cls.bot_context.set_create_action()
         radio = cls.bot_context.init_new_object()
         keyboard = cls.get_object_keyboard()
@@ -855,6 +886,7 @@ class BotLogicRadio(BotLogic):
 
         cls.bot_context.set_object_message_id(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_STATE
 
     @classmethod
@@ -992,8 +1024,6 @@ class BotLogicRadio(BotLogic):
     @handlers_wrapper
     @BotContextRadio.wrapper
     def set_name_start_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         cls.bot_context.set_actual_field('name')
         message = context.bot.send_message(
             update.effective_chat.id,
@@ -1002,14 +1032,13 @@ class BotLogicRadio(BotLogic):
         )
         cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_TEXT_STATE
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
     def set_title_template_start_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         cls.bot_context.set_actual_field('title_template')
         message = context.bot.send_message(
             update.effective_chat.id,
@@ -1018,14 +1047,13 @@ class BotLogicRadio(BotLogic):
         )
         cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_TEXT_STATE
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
     def edit_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         match = re.match(cls.EDIT_CALLBACK_DATA_PATTERN, update.callback_query.data)
         if match:
             edit_id = int(match.group(1))
@@ -1047,7 +1075,10 @@ class BotLogicRadio(BotLogic):
 
             cls.bot_context.set_object_message_id(message.message_id)
 
+            context.bot.answer_callback_query(update.callback_query.id)
             return cls.SET_FIELDS_STATE
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.BACK_STATE
 
     @classmethod
@@ -1089,8 +1120,6 @@ class BotLogicRadio(BotLogic):
     @handlers_wrapper
     @BotContextRadio.wrapper
     def show_list_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         keyboard_radios = cls.get_list_keyboard()
 
         message = context.bot.send_message(
@@ -1099,8 +1128,9 @@ class BotLogicRadio(BotLogic):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard_radios)
         )
-
         cls.bot_context.set_list_message(message.message_id)
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.LIST_STATE
 
     @classmethod
@@ -1152,8 +1182,6 @@ class BotLogicRadio(BotLogic):
     @handlers_wrapper
     @BotContextRadio.wrapper
     def choose_broadcaster_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         keyboard = cls.get_broadcaster_keyboard()
 
         message = context.bot.send_message(
@@ -1164,14 +1192,13 @@ class BotLogicRadio(BotLogic):
         )
         cls.bot_context.set_list_message(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.CHOOSE_BROADCASTER_CALLBACK_STATE
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
     def set_broadcaster_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         match = re.match(cls.SET_BROADCASTER_CALLBACK_DATA_PATTERN, update.callback_query.data)
         if match:
             broadcaster_id = int(match.group(1))
@@ -1194,15 +1221,16 @@ class BotLogicRadio(BotLogic):
             else:
                 pass
 
+            context.bot.answer_callback_query(update.callback_query.id)
             return cls.SET_FIELDS_STATE
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.BACK_STATE
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
     def choose_chat_to_broadcast_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         cls.bot_context.set_actual_field('chat_id')
         message = context.bot.send_message(
             update.effective_chat.id,
@@ -1211,14 +1239,13 @@ class BotLogicRadio(BotLogic):
         )
         cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_TEXT_STATE
 
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
     def choose_chat_to_download_action(cls, update: Update, context: CallbackContext):
-        context.bot.answer_callback_query(update.callback_query.id)
-
         cls.bot_context.set_actual_field('download_chat_id')
         message = context.bot.send_message(
             update.effective_chat.id,
@@ -1227,4 +1254,5 @@ class BotLogicRadio(BotLogic):
         )
         cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_TEXT_STATE

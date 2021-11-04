@@ -63,10 +63,7 @@ class BotLogicMain(BotLogic):
                     MessageHandler(Filters.all, self.admin_message_handler),
                 ],
             },
-            fallbacks=[],
-            map_to_parent={
-                BotLogicMain.RADIO_STATE: BotLogicMain.RADIO_STATE,
-            }
+            fallbacks=[]
         )
 
         dispatcher.add_handler(conversation_handler)
@@ -104,7 +101,7 @@ class BotLogicMain(BotLogic):
     @classmethod
     @handlers_wrapper
     def enter_admin_section_handler(cls, update: Update, context: CallbackContext):
-        context.bot.send_message(
+        message = context.bot.send_message(
             update.effective_chat.id,
             text=_('You are now in Admin section.\n'
                    'Admin\'s commands:\n'
@@ -116,7 +113,9 @@ class BotLogicMain(BotLogic):
                     callback_data=cls.BACK_CALLBACK_DATA), ],
             ])
         )
+        context.chat_data['admin_section_message_id'] = message.message_id
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.ADMIN_STATE
 
     @classmethod
@@ -126,4 +125,11 @@ class BotLogicMain(BotLogic):
 
     @classmethod
     def back_from_admin_handler(cls, update: Update, context: CallbackContext):
+        if 'admin_section_message_id' in context.chat_data:
+            context.bot.delete_message(
+                update.effective_chat.id,
+                context.chat_data['admin_section_message_id']
+            )
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.RADIO_STATE

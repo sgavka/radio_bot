@@ -240,8 +240,9 @@ class BotLogicRadioTelegramAccount(BotLogic):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard_radios)
         )
-
         cls.bot_context.set_list_message(message.message_id)
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.LIST_STATE
 
     @classmethod
@@ -324,6 +325,8 @@ class BotLogicRadioTelegramAccount(BotLogic):
         page = cls.bot_context.get_page()
         cls.bot_context.set_page(page + 1)
         cls.update_list_message(update, context)
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.LIST_STATE
 
     @classmethod
@@ -333,6 +336,8 @@ class BotLogicRadioTelegramAccount(BotLogic):
         page = cls.bot_context.get_page()
         cls.bot_context.set_page(page - 1)
         cls.update_list_message(update, context)
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.LIST_STATE
 
     @classmethod
@@ -352,6 +357,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
         )
         cls.bot_context.set_object_message_id(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_STATE
 
     @classmethod
@@ -457,6 +463,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
         )
         cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_TEXT_STATE
 
     @classmethod
@@ -473,6 +480,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
         )
         cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_TEXT_STATE
 
     @classmethod
@@ -489,6 +497,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
         )
         cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_TEXT_STATE
 
     @classmethod
@@ -529,6 +538,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
         cls.bot_context.add_message_to_delete(message.message_id)
         cls.bot_context.set_actual_auth_queue_id(auth_queue_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.wait_auth_worker(auth_queue_id, context, update)
 
     @classmethod
@@ -547,6 +557,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
         )
         cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.SET_FIELDS_STATE
 
     @classmethod
@@ -703,6 +714,8 @@ class BotLogicRadioTelegramAccount(BotLogic):
                 parse_mode=ParseMode.MARKDOWN
             )
             cls.bot_context.add_message_to_delete(message.message_id)
+
+            context.bot.answer_callback_query(update.callback_query.id)
             return cls.SET_FIELDS_STATE
 
         with transaction.atomic():
@@ -719,6 +732,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
             cls.update_list_message(update, context)
             cls.bot_context.clear_after_save()
 
+            context.bot.answer_callback_query(update.callback_query.id)
             return cls.LIST_STATE
         else:
             message = context.bot.send_message(
@@ -728,6 +742,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
             )
             cls.bot_context.add_message_to_delete(message.message_id)
 
+        context.bot.answer_callback_query(update.callback_query.id)
         return ConversationHandler.END
 
     @classmethod
@@ -756,7 +771,10 @@ class BotLogicRadioTelegramAccount(BotLogic):
 
             cls.bot_context.set_object_message_id(message.message_id)
 
+            context.bot.answer_callback_query(update.callback_query.id)
             return cls.SET_FIELDS_STATE
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.BACK_STATE
 
     @classmethod
@@ -764,6 +782,8 @@ class BotLogicRadioTelegramAccount(BotLogic):
     @BotContextRadioTelegramAccount.wrapper
     def back_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.delete_list_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.BACK_STATE
 
     @classmethod
@@ -771,5 +791,6 @@ class BotLogicRadioTelegramAccount(BotLogic):
     @BotContextRadioTelegramAccount.wrapper
     def edit_back_action(cls, update: Update, context: CallbackContext):
         cls.bot_context.clear_after_save()
-        context.bot.answer_callback_query(update.callback_query.id, _('Back! Changes was cleared.'))
+
+        context.bot.answer_callback_query(update.callback_query.id)
         return cls.LIST_STATE
