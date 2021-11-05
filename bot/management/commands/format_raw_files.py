@@ -94,7 +94,7 @@ class Command(BaseCommand):
         if audio is not None:
             file = client.download_media(audio.file_id)
         else:
-            raise Exception('Message has not audio/voice (2)! Message ID: %s' % (message.message_id,)) # todo: handle this case
+            raise Exception('Message has not audio/voice (2)! Message ID: %s' % (message.message_id,))  # todo: handle this case
 
         # convert audio file to raw
         file_name_raw = audio.file_id + '.raw'
@@ -105,9 +105,14 @@ class Command(BaseCommand):
         ffmpeg.input(file) \
             .output(file_path_raw,
                     format='s16le',
-                    acodec='pcm_s16le', ac=2, ar='48k'
-                    )\
-            .overwrite_output()\
+                    acodec='pcm_s16le',
+                    ac=2,
+                    ar='48k',
+                    **{
+                        'b:a': '128k'
+                    }
+                    ) \
+            .overwrite_output() \
             .run()
 
         # delete original file

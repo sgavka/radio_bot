@@ -7,12 +7,15 @@ import asyncio
 import re
 from multiprocessing import Process
 from shutil import copyfile
+import pyrogram
 import pytgcalls
 from asgiref.sync import sync_to_async
 from django.core.management.base import BaseCommand
 from sqlite3 import OperationalError
 from pyrogram import Client
 from pyrogram.errors import FloodWait, ChannelInvalid
+from pyrogram.raw.functions.channels import GetFullChannel
+from pyrogram.raw.functions.phone import EditGroupCallTitle
 from pyrogram.utils import get_channel_id
 from pytgcalls.exceptions import GroupCallNotFoundError
 from telegram import Bot, ParseMode
@@ -87,12 +90,14 @@ class QueueClient(object):
 
 class QueueGroupCall(object):
     def __init__(self, client: Client, storage):
+        self.client = client
         self.group_call = pytgcalls.GroupCallFactory(client).get_file_group_call()
         self.is_handler_playout_ended_set = False
         self.storage = storage
         self._is_started = False
         self._is_now_playing = False
         self.queue = None
+        self.radio = None
 
     def get(self) -> pytgcalls.GroupCall:
         return self.group_call
@@ -114,6 +119,7 @@ class QueueGroupCall(object):
             save_data_to_db = sync_to_async(Command.save_data_to_db)
             await save_data_to_db(radio)
             self._is_started = True
+            self.radio = radio
 
     def is_now_playing(self):
         return self._is_now_playing
@@ -121,6 +127,16 @@ class QueueGroupCall(object):
     def set_file(self, audio_file_path):
         self._is_now_playing = True
         self.group_call.input_filename = audio_file_path
+
+    async def set_title(self, title: str):
+        peer = await self.client.resolve_peer(self.radio.chat_id)
+        chat = await self.client.send(GetFullChannel(channel=peer))
+        data = EditGroupCallTitle(call=chat.full_chat.call, title=title)
+        result = await self.client.send(data)
+        if type(result) is pyrogram.raw.types.updates_t.Updates:
+            pass
+        # todo: check errors
+        pass
 
     def is_started(self):
         return self._is_started
@@ -241,6 +257,7 @@ class Command(BaseCommand):
                         group_call.input_filename = None
                         queue_group_call.set_queue(None)  # to not update queue status in DB
                         queue_group_call._is_now_playing = False
+                        await queue_group_call.set_title(_('On Pause!'))
                         continue
 
                     if radio.status == Radio.STATUS_ASKING_FOR_RESUME_BROADCAST:
@@ -248,6 +265,7 @@ class Command(BaseCommand):
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
                         queue_group_call._is_now_playing = True
+                        await queue_group_call.set_title(_('Resuming...'))
                         continue
 
                     try:
@@ -255,6 +273,7 @@ class Command(BaseCommand):
                         if not start_message_is_sent:
                             start_message_is_sent = True
                             await self.send_message(_('Radio is On Air!'), radio)
+                            await queue_group_call.set_title(_('Starting...'))
                     except OperationalError as e:
                         self.logger.critical(str(e), exc_info=True)
                         raise e  # todo: that is this error?
@@ -273,6 +292,7 @@ class Command(BaseCommand):
 
                         group_call.play_on_repeat = False
                         queue_group_call.set_file(file_path)
+                        await queue_group_call.set_title(first_queue.audio_file.get_full_title())
 
                     # fix: make playout_ended handler work
                     await asyncio.sleep(0.001)
@@ -373,6 +393,7 @@ class Command(BaseCommand):
                 await set_queue_played_status(last_queue)
             queue_group_call.set_queue(None)
             queue_group_call._is_now_playing = False
+            await queue_group_call.set_title(_('Next track...'))
             # delete prev file from disk
             os.remove(file_name)
         else:
