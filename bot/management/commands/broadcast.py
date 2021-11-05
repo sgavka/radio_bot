@@ -249,6 +249,7 @@ class Command(BaseCommand):
 
             refresh_data_iterator = 0
             start_message_is_sent = False
+            actual_queue: Queue = None
             while True:
                 try:
                     if refresh_data_iterator == self.REFRESH_DATA_ITERATIONS:
@@ -258,15 +259,16 @@ class Command(BaseCommand):
                     else:
                         refresh_data_iterator += 1
 
+                    queue_group_call = queue_client.init_group_call(radio.chat_id)
+                    queue_group_call.add_handler_playout_ended(self.playout_ended)
+                    group_call = queue_group_call.get()
+
                     if radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
                         radio.status = Radio.STATUS_NOT_ON_AIR
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
+                        await queue_group_call.set_title(_('Stopped!'))
                         break
-
-                    queue_group_call = queue_client.init_group_call(radio.chat_id)
-                    queue_group_call.add_handler_playout_ended(self.playout_ended)
-                    group_call = queue_group_call.get()
 
                     if radio.status == Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST:
                         radio.status = Radio.STATUS_ON_PAUSE
@@ -281,9 +283,11 @@ class Command(BaseCommand):
                         radio.status = Radio.STATUS_ON_AIR
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
+                        await queue_group_call.set_title(_('Resuming...'))
                         group_call.resume_playout()
                         queue_group_call._is_now_playing = True
-                        await queue_group_call.set_title(_('Resuming...'))
+                        if type(actual_queue) is Queue:
+                            await queue_group_call.set_title(actual_queue.audio_file.get_full_title())
                         continue
 
                     try:
@@ -300,6 +304,7 @@ class Command(BaseCommand):
                             and not radio.status == Radio.STATUS_ON_PAUSE:
                         get_first_queue = sync_to_async(self.get_first_queue)
                         first_queue: Queue = await get_first_queue(radio)
+                        actual_queue = first_queue
                         if not first_queue:
                             await asyncio.sleep(5.0)  # wait some time to download the next audio file
                             continue
