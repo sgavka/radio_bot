@@ -16,17 +16,22 @@ class Command(BaseCommand):
         # todo: maybe use multiprocessing
         try:
             while True:
-                radios = Queue.objects.annotate(cnt=Count('radio_id')).values('radio_id').filter(
-                    cnt__gte=self.COUNT_OF_FILES_TO_DOWNLOAD_FOR_RADIO,
-                    status=Queue.STATUS_IN_QUEUE_AND_DOWNLOADED
-                ).annotate(cnt=Count('radio_id')).values('radio_id')
+                radios = Queue.objects\
+                    .annotate(cnt=Count('radio_id'))\
+                    .values('radio_id')\
+                    .filter(
+                        cnt__gte=self.COUNT_OF_FILES_TO_DOWNLOAD_FOR_RADIO,
+                        status=Queue.STATUS_IN_QUEUE_AND_DOWNLOADED
+                    ).annotate(cnt=Count('radio_id'))\
+                    .values('radio_id')
                 queues = Queue.objects
                 if radios:
                     queues = queues.filter(~Q(radio__in=radios))
                 queues = queues.filter(status=Queue.STATUS_IN_QUEUE) \
-                    .filter(~Q(audio_file__raw_telegram_file_id=None))
+                    .filter(~Q(audio_file__raw_telegram_file_id=None))\
+                    .order_by('sort')
 
-                for queue in queues:
+                for queue in queues[:1]:
                     self.prepare(queue)
         except BaseException as e:
             self.logger.critical(str(e), exc_info=True)
@@ -82,7 +87,7 @@ class Command(BaseCommand):
             file_path = 'data/now-play-audio/' + str(radio.id) + '/' + file_name
             shutil.move(file, file_path)
         else:
-            raise Exception('Failed (2) to download audio file `%s`!' % (queue.audio_file.id,))
+            raise Exception('Failed (2) to download audio file `%s`! File: `%s`.' % (queue.audio_file.id, repr(file)))
 
         # save status
         queue.status = Queue.STATUS_IN_QUEUE_AND_DOWNLOADED

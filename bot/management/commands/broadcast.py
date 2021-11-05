@@ -1,4 +1,6 @@
 # todo: error then audio chat is not available
+# todo: after restart server put all radio in status STATUS_NOT_ON_AIR
+# todo: fix audio lags (maybe because of wait/sleep or because of queries while broadcast)
 import logging
 import os
 import asyncio
@@ -13,7 +15,10 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait, ChannelInvalid
 from pyrogram.utils import get_channel_id
 from pytgcalls.exceptions import GroupCallNotFoundError
-from bot.models import Radio, BroadcastUser, Queue
+from telegram import Bot, ParseMode
+from django.utils.translation import ugettext as _
+from bot.models import Radio, BroadcastUser, Queue, TelegramUser
+from bot.services.bot import get_bot_from_db
 
 
 class QueueStorage(object):
@@ -102,7 +107,8 @@ class QueueGroupCall(object):
             # await self.group_call.leave_current_group_call()
             await self.group_call.start(chat_id, join_as=chat_id)
             while not self.group_call.is_connected:  # after that the group call starts
-                # todo: check pyrogram.errors.exceptions.bad_request_400.BadRequest: [400 Bad Request]: [400 JOIN_AS_PEER_INVALID] (caused by "phone.JoinGroupCall")
+                # todo: check pyrogram.errors.exceptions.bad_request_400.BadRequest: [400 Bad Request]: [400
+                #  JOIN_AS_PEER_INVALID] (caused by "phone.JoinGroupCall")
                 await asyncio.sleep(0.001)
             radio.status = Radio.STATUS_ON_AIR
             save_data_to_db = sync_to_async(Command.save_data_to_db)
@@ -132,6 +138,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.storage = QueueStorage()
         self.logger = logging.getLogger('broadcast')
+        bot_from_db = get_bot_from_db()
+        self.bot = Bot(bot_from_db.token)
 
         try:
 
@@ -167,8 +175,7 @@ class Command(BaseCommand):
                                   exc_info=True)
                 # try again (put radio to the queue again)
                 radio.status = Radio.STATUS_ASKING_FOR_BROADCAST
-                save_data_to_db = sync_to_async(Command.save_data_to_db)
-                await save_data_to_db(radio)
+                radio.save()
                 return
         import logging
         logging.basicConfig(level=logging.DEBUG)
@@ -182,7 +189,6 @@ class Command(BaseCommand):
         return broadcast_user
 
     async def broadcast_worker(self, radio: Radio, broadcast_user: BroadcastUser):
-        # todo: flood error handling
         try:
             # show debug messages in console
             import logging
@@ -205,9 +211,10 @@ class Command(BaseCommand):
             # initialize client
             await client.initialize()
             while not client.is_connected:
-                raise Exception('Can\'t connect client `%s`!' % (broadcast_user.uid,)) # todo: handle this exclusion
+                raise Exception('Can\'t connect client `%s`!' % (broadcast_user.uid,))  # todo: handle this exclusion
 
             refresh_data_iterator = 0
+            start_message_is_sent = False
             while True:
                 try:
                     if refresh_data_iterator == self.REFRESH_DATA_ITERATIONS:
@@ -245,9 +252,12 @@ class Command(BaseCommand):
 
                     try:
                         await queue_group_call.start(radio.chat_id, radio)
-                        # todo: send message to bot
+                        if not start_message_is_sent:
+                            start_message_is_sent = True
+                            await self.send_message(_('Radio is On Air!'), radio)
                     except OperationalError as e:
-                        pass
+                        self.logger.critical(str(e), exc_info=True)
+                        raise e  # todo: that is this error?
 
                     if queue_group_call.is_started() and not queue_group_call.is_now_playing():
                         get_first_queue = sync_to_async(self.get_first_queue)
@@ -270,8 +280,11 @@ class Command(BaseCommand):
                     radio.status = Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED
                     save_data_to_db = sync_to_async(Command.save_data_to_db)
                     await save_data_to_db(radio)
+                    await self.send_message(
+                        _('Your audio chat is not started, please start it and request radio start again!'),
+                        radio
+                    )
                     break
-                    # todo: send error message
                 except FloodWait as e:
                     match = re.search(r'\ \d+\  ', str(e))
                     if match:
@@ -281,22 +294,49 @@ class Command(BaseCommand):
                         self.logger.critical(str(e), exc_info=True)
                         raise e
                 except ChannelInvalid as e:
-                    self.logger.critical(str(e), exc_info=True)
-                    pass  # todo: react on this exception (broadcaster is not in the channel/chat)
+                    self.logger.critical(str(e), exc_info=True)  # log it on case if it is different error than handled
+                    radio.status = Radio.STATUS_ERROR_BROADCASTER_IS_NOT_IN_BROADCAST_GROUP_OR_CHANNEL
+                    save_data_to_db = sync_to_async(Command.save_data_to_db)
+                    await save_data_to_db(radio)
+                    await self.send_message(
+                        _('Your broadcast account is not in broadcast group/channel!'
+                          ' Add it there and start radio again.'),
+                        radio
+                    )
+                    break
                 except OperationalError as e:
                     self.logger.critical(str(e), exc_info=True)
-                    pass
+                    radio.status = Radio.STATUS_ERROR_UNEXPECTED
+                    save_data_to_db = sync_to_async(Command.save_data_to_db)
+                    await save_data_to_db(radio)
+                    await self.send_message(
+                        _('There is unexpected error, please address to @sgavka!'),
+                        radio
+                    )
+                    break
                 except Exception as e:
                     self.logger.critical(str(e), exc_info=True)
-                    pass  # todo: react on this exceptions
-                    # todo: set wait maybe
+                    radio.status = Radio.STATUS_ERROR_UNEXPECTED
+                    save_data_to_db = sync_to_async(Command.save_data_to_db)
+                    await save_data_to_db(radio)
+                    await self.send_message(
+                        _('There is unexpected error, please address to @sgavka!'),
+                        radio
+                    )
+                    break
         except Exception as e:
             self.logger.critical(str(e), exc_info=True)
+            radio.status = Radio.STATUS_ERROR_UNEXPECTED
+            save_data_to_db = sync_to_async(Command.save_data_to_db)
+            await save_data_to_db(radio)
+            await self.send_message(
+                _('There is unexpected error, please address to @sgavka!'),
+                radio
+            )
             pass
 
     def get_first_queue(self, radio):
-        first_queue = Queue.objects.filter(radio=radio, status__in=[Queue.STATUS_IN_QUEUE,
-                                                                    Queue.STATUS_IN_QUEUE_AND_DOWNLOADED]) \
+        first_queue = Queue.objects.filter(radio=radio, status__in=[Queue.STATUS_IN_QUEUE_AND_DOWNLOADED]) \
             .order_by('sort').first()
         if first_queue:
             # get audio file object (need to do there to have access from queue object outside of this method
@@ -342,3 +382,16 @@ class Command(BaseCommand):
     def _set_queue_played_status(self, queue):
         queue.status = Queue.STATUS_PLAYED
         queue.save()
+
+    def _get_telegram_user_by_radio(self, radio: Radio) -> TelegramUser:
+        user_to_radio = radio.usertoradio_set.first()
+        telegram_user = TelegramUser.objects.filter(user=user_to_radio.user).get()
+        return telegram_user
+
+    async def send_message(self, text, radio: Radio):
+        _get_telegram_user_by_radio = sync_to_async(self._get_telegram_user_by_radio)
+        telegram_user = await _get_telegram_user_by_radio(radio)
+        self.bot.send_message(telegram_user.uid,
+                              text,
+                              parse_mode=ParseMode.MARKDOWN
+                              )

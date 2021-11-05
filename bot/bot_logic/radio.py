@@ -241,7 +241,7 @@ class BotLogicRadio(BotLogic):
     list_message_text = _('Here is your radios. Select one to manage:')
     add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\n\nYour actual queue:\n%s')
 
-    MANAGE_QUEUE_ITEMS_ON_PAGE = 5
+    MANAGE_QUEUE_ITEMS_ON_PAGE = 20
     MANAGE_QUEUE_DEFAULT_PAGE = 0
     MANAGE_QUEUE_DEFAULT_POINTER = (0, 0,)
 
@@ -726,6 +726,10 @@ class BotLogicRadio(BotLogic):
         for queue in queues:
             audio_file: AudioFile = queue.audio_file
 
+            # todo: show audio file that is in the queue
+            # todo: mark italian played audio files
+            # todo: dont allow to move played files or if played file is moved over now playing it is marked as not played
+            # todo: set pointer position to now playing audio file
             if queue.status == Queue.STATUS_PROCESSING:
                 full_title = '[%s-%s] [%s] %s' % (queue.id, queue.sort, _('Processing...'), audio_file.get_full_title())
             else:
@@ -955,6 +959,7 @@ class BotLogicRadio(BotLogic):
             keyboard.append(manage_queue_row)
 
         on_air_row = []
+        # todo: add all errors statuses
         if cls.bot_context.is_edit_action():
             if radio.status == Radio.STATUS_NOT_ON_AIR:
                 on_air_row.append(
