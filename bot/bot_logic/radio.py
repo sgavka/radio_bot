@@ -98,6 +98,9 @@ class BotContextRadio(BotContext):
             self.edit[self.EDIT_OBJECT_CONTEXT] = radio_object
         return self.edit[self.EDIT_OBJECT_CONTEXT]
 
+    def set_edited_object(self, radio: Radio):
+        self.edit[self.EDIT_OBJECT_CONTEXT] = radio
+
     def set_edit_action(self):
         self.context[self.ACTION_CONTEXT] = self.EDIT_ACTION
 
@@ -225,6 +228,7 @@ class BotLogicRadio(BotLogic):
     CHOOSE_BROADCASTER_CALLBACK_DATA = r'choose_broadcaster'
     CHOOSE_CHAT_TO_BROADCAST_CALLBACK_DATA = r'choose_chat_to_broadcast'
     CHOOSE_CHAT_TO_DOWNLOAD_CALLBACK_DATA = r'choose_chat_to_download'
+    REFRESH_CALLBACK_DATA = r'refresh'
     MANAGE_QUEUE_CALLBACK_DATA = r'add_to_queue'
     BACK_CALLBACK_DATA = r'back'
     BACK_FROM_MANAGE_QUEUE_CALLBACK_DATA = r'back_from_add_to_queue'
@@ -258,6 +262,8 @@ class BotLogicRadio(BotLogic):
     NEXT_PAGE_CALLBACK_DATA = 'next_page'
     PREV_PAGE_CALLBACK_DATA = 'prev_page'
     STOP_AIR_CALLBACK_DATA = 'manage_queue_stop_air'
+    PAUSE_AIR_CALLBACK_DATA = 'manage_queue_pause_air'
+    RESUME_AIR_CALLBACK_DATA = 'manage_queue_resume_air'
     START_AIR_CALLBACK_DATA = 'manage_queue_start_air'
 
     @classmethod
@@ -278,12 +284,15 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.edit_back_action, pattern=cls.EDIT_BACK_CALLBACK_DATA),
                     CallbackQueryHandler(cls.manage_queue_action, pattern=cls.MANAGE_QUEUE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.manage_queue_stop_air_action, pattern=cls.STOP_AIR_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.manage_queue_pause_air_action, pattern=cls.PAUSE_AIR_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.manage_queue_resume_air_action, pattern=cls.RESUME_AIR_CALLBACK_DATA),
                     CallbackQueryHandler(cls.manage_queue_start_air_action, pattern=cls.START_AIR_CALLBACK_DATA),
                     CallbackQueryHandler(cls.choose_broadcaster_action, pattern=cls.CHOOSE_BROADCASTER_CALLBACK_DATA),
                     CallbackQueryHandler(cls.choose_chat_to_broadcast_action,
                                          pattern=cls.CHOOSE_CHAT_TO_BROADCAST_CALLBACK_DATA),
                     CallbackQueryHandler(cls.choose_chat_to_download_action,
                                          pattern=cls.CHOOSE_CHAT_TO_DOWNLOAD_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.refresh_action, pattern=cls.REFRESH_CALLBACK_DATA),
                 ],
                 cls.MANAGE_QUEUE_CALLBACK_STATE: [
                     CallbackQueryHandler(cls.back_from_add_to_queue_action,
@@ -543,9 +552,45 @@ class BotLogicRadio(BotLogic):
     @classmethod
     @handlers_wrapper
     @BotContextRadio.wrapper
+    def refresh_action(cls, update: Update, context: CallbackContext):
+        radio = cls.bot_context.get_actual_object()
+        radio.refresh_from_db()
+        cls.bot_context.set_edited_object(radio)
+        cls.update_object_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
+        return cls.SET_FIELDS_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
     def manage_queue_stop_air_action(cls, update: Update, context: CallbackContext):
         radio = cls.bot_context.get_actual_object()
         radio.status = Radio.STATUS_ASKING_FOR_STOP_BROADCAST
+        radio.save()
+        cls.update_object_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
+        return cls.SET_FIELDS_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def manage_queue_pause_air_action(cls, update: Update, context: CallbackContext):
+        radio = cls.bot_context.get_actual_object()
+        radio.status = Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST
+        radio.save()
+        cls.update_object_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
+        return cls.SET_FIELDS_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def manage_queue_resume_air_action(cls, update: Update, context: CallbackContext):
+        radio = cls.bot_context.get_actual_object()
+        radio.status = Radio.STATUS_ASKING_FOR_RESUME_BROADCAST
         radio.save()
         cls.update_object_message()
 
@@ -728,7 +773,8 @@ class BotLogicRadio(BotLogic):
 
             # todo: show audio file that is in the queue
             # todo: mark italian played audio files
-            # todo: dont allow to move played files or if played file is moved over now playing it is marked as not played
+            # todo: dont allow to move played files or if played file is moved over now playing it is marked as not
+            #  played
             # todo: set pointer position to now playing audio file
             if queue.status == Queue.STATUS_PROCESSING:
                 full_title = '[%s-%s] [%s] %s' % (queue.id, queue.sort, _('Processing...'), audio_file.get_full_title())
@@ -959,31 +1005,82 @@ class BotLogicRadio(BotLogic):
             keyboard.append(manage_queue_row)
 
         on_air_row = []
-        # todo: add all errors statuses
+        # todo: need to check if user can press the button (depends on status)
         if cls.bot_context.is_edit_action():
             if radio.status == Radio.STATUS_NOT_ON_AIR:
                 on_air_row.append(
                     InlineKeyboardButton(
-                        _('Start On-Air'),
-                        callback_data=cls.START_AIR_CALLBACK_DATA),
+                        _('Start Broadcasting'),
+                        callback_data=cls.START_AIR_CALLBACK_DATA
+                    ),
                 )
             elif radio.status == Radio.STATUS_ON_AIR:
                 on_air_row.append(
                     InlineKeyboardButton(
                         _('%s On-Air (Stop)') % ("\U0001F534",),
-                        callback_data=cls.STOP_AIR_CALLBACK_DATA),
+                        callback_data=cls.STOP_AIR_CALLBACK_DATA
+                    ),
                 )
-            elif radio.status == Radio.STATUS_ASKING_FOR_BROADCAST:
                 on_air_row.append(
                     InlineKeyboardButton(
-                        _('%s On-Air') % ("\U0001F7E0",),
-                        callback_data='blank'),
+                        _('Pause'),
+                        callback_data=cls.PAUSE_AIR_CALLBACK_DATA
+                    ),
+                )
+            elif radio.status == Radio.STATUS_ASKING_FOR_BROADCAST \
+                    and radio.status == Radio.STATUS_STARTING_BROADCAST:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('%s Starting...') % ("\U0001F7E0",),
+                        callback_data='blank'
+                    ),
                 )
             elif radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
                 on_air_row.append(
                     InlineKeyboardButton(
                         _('Stopping...'),
-                        callback_data='blank'),
+                        callback_data='blank'
+                    ),
+                )
+            elif radio.status == Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Pausing...'),
+                        callback_data='blank'
+                    ),
+                )
+            elif radio.status == Radio.STATUS_ASKING_FOR_RESUME_BROADCAST:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Resuming...'),
+                        callback_data='blank'
+                    ),
+                )
+            elif radio.status == Radio.STATUS_ON_PAUSE:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Resume'),
+                        callback_data=cls.RESUME_AIR_CALLBACK_DATA
+                    ),
+                )
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('%s On Pause (Stop)') % ("\U0001F7E0",),
+                        callback_data=cls.STOP_AIR_CALLBACK_DATA
+                    ),
+                )
+            elif Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED <= radio.status <= Radio.STATUS_ERROR_CANT_CONNECT:
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Error: %s') % (Radio.STATUSES[radio.status],),
+                        callback_data='blank'
+                    ),
+                )
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Restart Broadcasting'),
+                        callback_data=cls.START_AIR_CALLBACK_DATA
+                    ),
                 )
         if len(on_air_row):
             keyboard.append(on_air_row)
@@ -1017,6 +1114,13 @@ class BotLogicRadio(BotLogic):
                 _('Back'),
                 callback_data=cls.EDIT_BACK_CALLBACK_DATA),
         ])
+
+        if cls.bot_context.is_edit_action():
+            keyboard.append([
+                InlineKeyboardButton(
+                    _('\U0001F504'),
+                    callback_data=cls.REFRESH_CALLBACK_DATA),
+            ])
 
         return keyboard
 
@@ -1164,12 +1268,16 @@ class BotLogicRadio(BotLogic):
         text += '\n' + cls.get_status_string(radio)
 
         if text:
-            cls.context.bot.edit_message_text(text,
-                                              cls.update.effective_chat.id,
-                                              message_id,
-                                              parse_mode=ParseMode.MARKDOWN,
-                                              reply_markup=InlineKeyboardMarkup(keyboard),
-                                              disable_web_page_preview=True)
+            try:
+
+                cls.context.bot.edit_message_text(text,
+                                                  cls.update.effective_chat.id,
+                                                  message_id,
+                                                  parse_mode=ParseMode.MARKDOWN,
+                                                  reply_markup=InlineKeyboardMarkup(keyboard),
+                                                  disable_web_page_preview=True)
+            except BadRequest as e:
+                pass
 
     @classmethod
     def get_broadcaster_keyboard(cls):

@@ -1,10 +1,10 @@
-# todo: error then audio chat is not available
 # todo: after restart server put all radio in status STATUS_NOT_ON_AIR
-# todo: fix audio lags (maybe because of wait/sleep or because of queries while broadcast)
 import logging
+import multiprocessing
 import os
 import asyncio
 import re
+from logging.handlers import QueueHandler
 from multiprocessing import Process
 from shutil import copyfile
 import pyrogram
@@ -46,13 +46,14 @@ class QueueClient(object):
         radio_session_name, sessions_directory = self.init_radio_session(broadcast_user_uid, radio_id)
         # todo: extract generation of session names (& maybe create helper to work with seesions)
         if not os.path.exists(sessions_directory + '/' + radio_session_name + '.session'):
-            if os.path.exists(sessions_directory + '/' + session_name + '.session'):
+            main_session = sessions_directory + '/' + session_name + '.session'
+            if os.path.exists(main_session):
                 copyfile(
-                    sessions_directory + '/' + session_name + '.session',
+                    main_session,
                     sessions_directory + '/' + radio_session_name + '.session'
                 )
             else:
-                pass  # todo: need to handle this case
+                raise Exception('Session\'s file `%s` not exists!' % (main_session,))
         self.client = Client(radio_session_name,
                              api_id=broadcast_user_api_id,
                              api_hash=broadcast_user_api_hash,
@@ -151,14 +152,29 @@ class QueueGroupCall(object):
 class Command(BaseCommand):
     REFRESH_DATA_ITERATIONS = 5
 
+    def log_processor(self, queue):
+        self.logger = logging.getLogger('broadcast')
+
+        while True:
+            try:
+                record = queue.get()
+                if record is None:
+                    break
+                self.logger.log(record.levelno, record.msg)
+            except Exception as e:
+                pass
+
     def handle(self, *args, **options):
         self.storage = QueueStorage()
-        self.logger = logging.getLogger('broadcast')
+
+        queue = multiprocessing.Queue(-1)
+        listener = multiprocessing.Process(target=self.log_processor, args=(queue,))
+        listener.start()
+
         bot_from_db = get_bot_from_db()
         self.bot = Bot(bot_from_db.token)
 
         try:
-
             while True:
                 radios = Radio.objects.filter(status=Radio.STATUS_ASKING_FOR_BROADCAST)
 
@@ -166,7 +182,7 @@ class Command(BaseCommand):
                     for radio in radios:
                         radio.status = Radio.STATUS_STARTING_BROADCAST
                         radio.save()
-                        process = Process(target=self.worker, args=(radio,))
+                        process = Process(target=self.worker, args=(radio, queue))
                         process.start()
                 except RuntimeError as e:
                     if 'StopIteration' in str(e):
@@ -175,40 +191,30 @@ class Command(BaseCommand):
                         raise e
                 except StopIteration:
                     pass
-        except BroadcastUser as e:
+        except BaseException as e:
             self.logger.critical(str(e), exc_info=True)
             raise e
 
-    def worker(self, radio: Radio):
-        try:
-            broadcast_user = BroadcastUser.objects.get(id=radio.broadcast_user_id)
-        except BroadcastUser.DoesNotExist:
-            self.logger.error('Exception `BroadcastUser.DoesNotExist` was raised! Code try again.', exc_info=True)
-            try:
-                broadcast_user = BroadcastUser.objects.get(id=radio.broadcast_user_id)  # todo: sometime this not help
-            except BroadcastUser.DoesNotExist as e:
-                self.logger.error('Exception `BroadcastUser.DoesNotExist` was raised! Second try don\'t help.',
-                                  exc_info=True)
-                # try again (put radio to the queue again)
-                radio.status = Radio.STATUS_ASKING_FOR_BROADCAST
-                radio.save()
-                return
-        import logging
-        logging.basicConfig(level=logging.DEBUG)
+    def worker(self, radio: Radio, queue):
+        self.logger = logging.getLogger(__name__)
+        self.logger.addHandler(QueueHandler(queue))
 
         loop = asyncio.new_event_loop()
-        loop.run_until_complete(self.broadcast_worker(radio, broadcast_user))
+        loop.run_until_complete(self.broadcast_worker(radio))
         loop.close()
 
     def get_broadcast_user_by_id(self, radio):
         broadcast_user = BroadcastUser.objects.get(id=radio.broadcast_user_id)
         return broadcast_user
 
-    async def broadcast_worker(self, radio: Radio, broadcast_user: BroadcastUser):
+    def get_broadcast_user(self, radio) -> BroadcastUser:
+        broadcast_user = BroadcastUser.objects.get(id=radio.broadcast_user_id)
+        return broadcast_user
+
+    async def broadcast_worker(self, radio: Radio,):
         try:
-            # show debug messages in console
-            import logging
-            logging.basicConfig(level=logging.DEBUG)
+            get_broadcast_user = sync_to_async(self.get_broadcast_user)
+            broadcast_user = await get_broadcast_user(radio)
 
             # init client
             queue_client = self.storage.init(broadcast_user.uid,
@@ -220,13 +226,25 @@ class Command(BaseCommand):
             # connect client
             is_authorized = await client.connect()
             if not is_authorized:
+                radio.status = Radio.STATUS_ERROR_IS_NOT_AUTHORIZED
+                save_data_to_db = sync_to_async(Command.save_data_to_db)
+                await save_data_to_db(radio)
+                await self.send_message(
+                    _('Your broadcast account is not in authorized!'),
+                    radio
+                )
                 raise Exception('Client `%s` is not authorized!' % (broadcast_user.uid,))
-                pass  # todo: handle this exclusion -- set error status for the radio and for the account
-                # todo: send error message throw bot
 
             # initialize client
             await client.initialize()
             while not client.is_connected:
+                radio.status = Radio.STATUS_ERROR_CANT_CONNECT
+                save_data_to_db = sync_to_async(Command.save_data_to_db)
+                await save_data_to_db(radio)
+                await self.send_message(
+                    _('Your broadcast account can\'t connect!'),
+                    radio
+                )
                 raise Exception('Can\'t connect client `%s`!' % (broadcast_user.uid,))  # todo: handle this exclusion
 
             refresh_data_iterator = 0
@@ -254,8 +272,7 @@ class Command(BaseCommand):
                         radio.status = Radio.STATUS_ON_PAUSE
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
-                        group_call.input_filename = None
-                        queue_group_call.set_queue(None)  # to not update queue status in DB
+                        group_call.pause_playout()
                         queue_group_call._is_now_playing = False
                         await queue_group_call.set_title(_('On Pause!'))
                         continue
@@ -264,6 +281,7 @@ class Command(BaseCommand):
                         radio.status = Radio.STATUS_ON_AIR
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
+                        group_call.resume_playout()
                         queue_group_call._is_now_playing = True
                         await queue_group_call.set_title(_('Resuming...'))
                         continue
@@ -278,7 +296,8 @@ class Command(BaseCommand):
                         self.logger.critical(str(e), exc_info=True)
                         raise e  # todo: that is this error?
 
-                    if queue_group_call.is_started() and not queue_group_call.is_now_playing():
+                    if queue_group_call.is_started() and not queue_group_call.is_now_playing() \
+                            and not radio.status == Radio.STATUS_ON_PAUSE:
                         get_first_queue = sync_to_async(self.get_first_queue)
                         first_queue: Queue = await get_first_queue(radio)
                         if not first_queue:
@@ -398,7 +417,6 @@ class Command(BaseCommand):
             os.remove(file_name)
         else:
             self.logger.error('Can\'t find group call to end playout!', exc_info=True)
-            pass  # todo: check error
 
     def _set_queue_played_status(self, queue):
         queue.status = Queue.STATUS_PLAYED

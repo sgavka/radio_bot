@@ -83,6 +83,8 @@ class Radio(models.Model):
     STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED = 8
     STATUS_ERROR_BROADCASTER_IS_NOT_IN_BROADCAST_GROUP_OR_CHANNEL = 9
     STATUS_ERROR_UNEXPECTED = 10
+    STATUS_ERROR_IS_NOT_AUTHORIZED = 11
+    STATUS_ERROR_CANT_CONNECT = 12
     STATUSES = {
         STATUS_ON_AIR: 'On air',
         STATUS_NOT_ON_AIR: 'Not on air',
@@ -92,6 +94,12 @@ class Radio(models.Model):
         STATUS_ASKING_FOR_STOP_BROADCAST: 'Asking to stop broadcast',
         STATUS_ASKING_FOR_RESUME_BROADCAST: 'Asking to resume broadcast',
         STATUS_ON_PAUSE: 'On pause',
+        STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED: 'Audio chat is not started!',
+        STATUS_ERROR_BROADCASTER_IS_NOT_IN_BROADCAST_GROUP_OR_CHANNEL: 'Broadcaster is not in broadcast group or '
+                                                                       'channel!',
+        STATUS_ERROR_UNEXPECTED: 'unexpected error',
+        STATUS_ERROR_IS_NOT_AUTHORIZED: 'Telegram Account is not authorized!',
+        STATUS_ERROR_CANT_CONNECT: 'Telegram Account can\'t connect!',
     }
 
     name = models.CharField(max_length=255, blank=False)
@@ -128,7 +136,7 @@ class AudioFile(models.Model):
     file_name = models.CharField(max_length=255, blank=True, null=True)
     duration_seconds = models.IntegerField(blank=True, null=True)
     size = models.IntegerField(blank=True, null=True)
-    
+
     def get_full_title(self) -> str:
         return _('%s — %s') % (self.author, self.title)
 

@@ -192,6 +192,12 @@ LOGGING = {
             'filename': os.path.join(BASE_DIR, 'logs/errors_broadcast.log'),
             'formatter': 'verbose',
         },
+        'file_bot_logic_main': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/errors_bot_logic_main.log'),
+            'formatter': 'verbose',
+        },
     },
     'root': {
         'handlers': ['file'],
@@ -229,6 +235,10 @@ LOGGING = {
         },
         'broadcast': {
             'handlers': ['file_broadcast', 'mail_admins'],
+            'level': 'ERROR',
+        },
+        'bot_logic_main': {
+            'handlers': ['file_bot_logic_main', 'mail_admins'],
             'level': 'ERROR',
         },
     }

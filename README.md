@@ -89,7 +89,19 @@ Select new configuration and run Debug.
 - add all commands to readme.md
 - make visible then model is not saved
 - add validation for chat_id (is group or channel) & download_chat_id (is chat)
-- add exception handlers for cases then is set invalid chat_id/channel_id
-- show error in bot chat if userbot is not owner of channer/chat there its broadcast
-- add refresh button for radio model message
-- 
+
+# Develop
+
+## Commands
+
+### Start bot
+> docker-compose run web python manage.py start_bot
+
+### Format raw files
+> docker-compose run web python manage.py format_raw_files
+
+### Download actual queue
+> docker-compose run web python manage.py download_actual_queue
+
+### Broadcast
+> docker-compose run web python manage.py broadcast
