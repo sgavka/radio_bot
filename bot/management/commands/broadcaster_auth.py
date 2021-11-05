@@ -1,3 +1,4 @@
+import logging
 import os
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -12,15 +13,21 @@ class Command(BaseCommand):
     apps = {}
 
     def handle(self, *args, **options):
-        while True:
-            broadcaster_queue = BroadcasterAuthQueue.objects.filter(status__in=[
-                BroadcasterAuthQueue.STATUS_NEED_TO_AUTH,
-                BroadcasterAuthQueue.STATUS_NEED_TO_AUTH_WITH_CODE,
-                BroadcasterAuthQueue.STATUS_NEED_TO_AUTH_WITH_PASSWORD,
-            ]).all()
-            # todo: maybe use subprocess there
-            for broadcast_auth in broadcaster_queue:
-                self.login(broadcast_auth)
+        self.logger = logging.getLogger('broadcaster_auth')
+
+        try:
+            while True:
+                broadcaster_queue = BroadcasterAuthQueue.objects.filter(status__in=[
+                    BroadcasterAuthQueue.STATUS_NEED_TO_AUTH,
+                    BroadcasterAuthQueue.STATUS_NEED_TO_AUTH_WITH_CODE,
+                    BroadcasterAuthQueue.STATUS_NEED_TO_AUTH_WITH_PASSWORD,
+                ]).all()
+                # todo: maybe use subprocess there
+                for broadcast_auth in broadcaster_queue:
+                    self.login(broadcast_auth)
+        except BaseException as e:
+            self.logger.critical(str(e), exc_info=True)
+            raise e
 
     def login(self, broadcast_auth: BroadcasterAuthQueue):
         # init sessions directory
@@ -48,7 +55,7 @@ class Command(BaseCommand):
         try:
             is_authorize = app.connect()
         except ConnectionError:
-            pass  # go to next block
+            pass  # go to next block, client is already connected
 
         user = None
         if not is_authorize:
@@ -79,13 +86,18 @@ class Command(BaseCommand):
                         elif type(auth) is User or (type(auth) is bool and auth is True):
                             user = auth
                             self.set_success(broadcast_auth, app)
+                        else:
+                            raise Exception(
+                                'Sign In response type is unavailable `%s` => `%s`!' % (type(auth), repr(auth))
+                            )
                     except PhoneCodeExpired:
                         broadcast_auth.status = BroadcasterAuthQueue.STATUS_CODE_EXPIRED
                         broadcast_auth.save()
                     except SessionPasswordNeeded:
                         broadcast_auth.status = BroadcasterAuthQueue.STATUS_NEED_PASSWORD
                         broadcast_auth.save()
-                    except BadRequest:
+                    except BadRequest as e:
+                        self.logger.error(str(e), exc_info=True)
                         broadcast_auth.status = BroadcasterAuthQueue.STATUS_CODE_IS_INVALID
                         broadcast_auth.save()
                 elif broadcast_auth.status == BroadcasterAuthQueue.STATUS_NEED_TO_AUTH_WITH_PASSWORD:
@@ -97,9 +109,9 @@ class Command(BaseCommand):
                     else:
                         self.set_success(broadcast_auth, app)
             except RPCError as e:
+                self.logger.error(str(e), exc_info=True)
                 broadcast_auth.status = BroadcasterAuthQueue.STATUS_UNKNOWN_ERROR
                 broadcast_auth.save()
-                # todo: logging
         else:
             self.set_success(broadcast_auth, app)
 
@@ -121,3 +133,5 @@ class Command(BaseCommand):
                 session_path + get_session_name(broadcast_auth.broadcast_user.uid) + '.session'
             )
             del self.apps[session_name]
+        else:
+            raise Exception('Get me response type is unavailable `%s` => `%s`!' % (type(user), repr(user)))

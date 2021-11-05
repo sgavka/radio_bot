@@ -1,4 +1,5 @@
 # todo: error then audio chat is not available
+import logging
 import os
 import asyncio
 import re
@@ -96,13 +97,16 @@ class QueueGroupCall(object):
             self.group_call.on_playout_ended(playout_ended)
             self.is_handler_playout_ended_set = True
 
-    async def start(self, chat_id: int):
+    async def start(self, chat_id: int, radio: Radio):
         if not self._is_started:
             # await self.group_call.leave_current_group_call()
             await self.group_call.start(chat_id, join_as=chat_id)
             while not self.group_call.is_connected:  # after that the group call starts
                 # todo: check pyrogram.errors.exceptions.bad_request_400.BadRequest: [400 Bad Request]: [400 JOIN_AS_PEER_INVALID] (caused by "phone.JoinGroupCall")
                 await asyncio.sleep(0.001)
+            radio.status = Radio.STATUS_ON_AIR
+            save_data_to_db = sync_to_async(Command.save_data_to_db)
+            await save_data_to_db(radio)
             self._is_started = True
 
     def is_now_playing(self):
@@ -123,33 +127,49 @@ class QueueGroupCall(object):
 
 
 class Command(BaseCommand):
+    REFRESH_DATA_ITERATIONS = 5
+
     def handle(self, *args, **options):
-        # todo: create QueueCollection prop
         self.storage = QueueStorage()
+        self.logger = logging.getLogger('broadcast')
 
-        while True:
-            radios = Radio.objects.filter(status=Radio.STATUS_ASKING_FOR_BROADCAST)
+        try:
 
-            try:
-                for radio in radios:
-                    radio.status = Radio.STATUS_STARTING_BROADCAST
-                    radio.save()
-                    process = Process(target=self.worker, args=(radio,))
-                    process.start()
-            except RuntimeError as e:
-                if 'StopIteration' in str(e):
+            while True:
+                radios = Radio.objects.filter(status=Radio.STATUS_ASKING_FOR_BROADCAST)
+
+                try:
+                    for radio in radios:
+                        radio.status = Radio.STATUS_STARTING_BROADCAST
+                        radio.save()
+                        process = Process(target=self.worker, args=(radio,))
+                        process.start()
+                except RuntimeError as e:
+                    if 'StopIteration' in str(e):
+                        pass
+                    else:
+                        raise e
+                except StopIteration:
                     pass
-                else:
-                    raise e
-            except StopIteration:
-                pass
+        except BroadcastUser as e:
+            self.logger.critical(str(e), exc_info=True)
+            raise e
 
     def worker(self, radio: Radio):
         try:
             broadcast_user = BroadcastUser.objects.get(id=radio.broadcast_user_id)
         except BroadcastUser.DoesNotExist:
-            broadcast_user = BroadcastUser.objects.get(id=radio.broadcast_user_id)  # todo: sometime this not help
-
+            self.logger.error('Exception `BroadcastUser.DoesNotExist` was raised! Code try again.', exc_info=True)
+            try:
+                broadcast_user = BroadcastUser.objects.get(id=radio.broadcast_user_id)  # todo: sometime this not help
+            except BroadcastUser.DoesNotExist as e:
+                self.logger.error('Exception `BroadcastUser.DoesNotExist` was raised! Second try don\'t help.',
+                                  exc_info=True)
+                # try again (put radio to the queue again)
+                radio.status = Radio.STATUS_ASKING_FOR_BROADCAST
+                save_data_to_db = sync_to_async(Command.save_data_to_db)
+                await save_data_to_db(radio)
+                return
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
@@ -162,7 +182,6 @@ class Command(BaseCommand):
         return broadcast_user
 
     async def broadcast_worker(self, radio: Radio, broadcast_user: BroadcastUser):
-        # todo: resolve db exceptions
         # todo: flood error handling
         try:
             # show debug messages in console
@@ -179,18 +198,19 @@ class Command(BaseCommand):
             # connect client
             is_authorized = await client.connect()
             if not is_authorized:
+                raise Exception('Client `%s` is not authorized!' % (broadcast_user.uid,))
                 pass  # todo: handle this exclusion -- set error status for the radio and for the account
                 # todo: send error message throw bot
 
             # initialize client
             await client.initialize()
             while not client.is_connected:
-                pass  # todo: handle this exclusion
+                raise Exception('Can\'t connect client `%s`!' % (broadcast_user.uid,)) # todo: handle this exclusion
 
             refresh_data_iterator = 0
             while True:
                 try:
-                    if refresh_data_iterator == 5:  # todo: move to constant
+                    if refresh_data_iterator == self.REFRESH_DATA_ITERATIONS:
                         refresh_data_from_db = sync_to_async(self.refresh_data_from_db)
                         radio = await refresh_data_from_db(radio)
                         refresh_data_iterator = 0
@@ -199,24 +219,40 @@ class Command(BaseCommand):
 
                     if radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
                         radio.status = Radio.STATUS_NOT_ON_AIR
-                        save_data_to_db = sync_to_async(self.save_data_to_db)
+                        save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
                         break
 
                     queue_group_call = queue_client.init_group_call(radio.chat_id)
                     queue_group_call.add_handler_playout_ended(self.playout_ended)
+                    group_call = queue_group_call.get()
+
+                    if radio.status == Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST:
+                        radio.status = Radio.STATUS_ON_PAUSE
+                        save_data_to_db = sync_to_async(Command.save_data_to_db)
+                        await save_data_to_db(radio)
+                        group_call.input_filename = None
+                        queue_group_call.set_queue(None)  # to not update queue status in DB
+                        queue_group_call._is_now_playing = False
+                        continue
+
+                    if radio.status == Radio.STATUS_ASKING_FOR_RESUME_BROADCAST:
+                        radio.status = Radio.STATUS_ON_AIR
+                        save_data_to_db = sync_to_async(Command.save_data_to_db)
+                        await save_data_to_db(radio)
+                        queue_group_call._is_now_playing = True
+                        continue
 
                     try:
-                        await queue_group_call.start(radio.chat_id)
+                        await queue_group_call.start(radio.chat_id, radio)
+                        # todo: send message to bot
                     except OperationalError as e:
                         pass
-
-                    group_call = queue_group_call.get()
 
                     if queue_group_call.is_started() and not queue_group_call.is_now_playing():
                         get_first_queue = sync_to_async(self.get_first_queue)
                         first_queue: Queue = await get_first_queue(radio)
-                        if not first_queue and first_queue.status != Queue.STATUS_IN_QUEUE:
+                        if not first_queue:
                             await asyncio.sleep(5.0)  # wait some time to download the next audio file
                             continue
 
@@ -230,32 +266,33 @@ class Command(BaseCommand):
 
                     # fix: make playout_ended handler work
                     await asyncio.sleep(0.001)
-
-                    # todo: wait actions: pause, stop, play
-                    # todo: change status in telegram message
-                    # todo: set radio status On Air
-                except GroupCallNotFoundError as e:
-                    pass  # todo: react on this exception
-                    # todo: create status for this
-                    # todo: set wait maybe
-                    # todo: save last chat_id & message_id there radio is shown & update this message
+                except GroupCallNotFoundError:
+                    radio.status = Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED
+                    save_data_to_db = sync_to_async(Command.save_data_to_db)
+                    await save_data_to_db(radio)
+                    break
+                    # todo: send error message
                 except FloodWait as e:
                     match = re.search(r'\ \d+\  ', str(e))
-                    # todo: maybe need to match async
                     if match:
                         await asyncio.sleep(int(match.group(1)))
                     else:
-                        pass
+                        self.logger.critical('Can\'t parse FloodWait exception to wait!', exc_info=True)
+                        self.logger.critical(str(e), exc_info=True)
+                        raise e
                 except ChannelInvalid as e:
+                    self.logger.critical(str(e), exc_info=True)
                     pass  # todo: react on this exception (broadcaster is not in the channel/chat)
                 except OperationalError as e:
+                    self.logger.critical(str(e), exc_info=True)
                     pass
                 except Exception as e:
+                    self.logger.critical(str(e), exc_info=True)
                     pass  # todo: react on this exceptions
                     # todo: set wait maybe
         except Exception as e:
+            self.logger.critical(str(e), exc_info=True)
             pass
-        pass
 
     def get_first_queue(self, radio):
         first_queue = Queue.objects.filter(radio=radio, status__in=[Queue.STATUS_IN_QUEUE,
@@ -270,7 +307,8 @@ class Command(BaseCommand):
         model.refresh_from_db()
         return model
 
-    def save_data_to_db(self, model):
+    @classmethod
+    def save_data_to_db(cls, model):
         model.save()
 
     async def playout_ended(self, group_call, file_name):
@@ -290,13 +328,15 @@ class Command(BaseCommand):
                             break
         if queue_group_call and type(group_id) is int:
             last_queue = queue_group_call.get_queue()
-            set_queue_played_status = sync_to_async(self._set_queue_played_status)
-            await set_queue_played_status(last_queue)
+            if last_queue:
+                set_queue_played_status = sync_to_async(self._set_queue_played_status)
+                await set_queue_played_status(last_queue)
             queue_group_call.set_queue(None)
             queue_group_call._is_now_playing = False
             # delete prev file from disk
             os.remove(file_name)
         else:
+            self.logger.error('Can\'t find group call to end playout!', exc_info=True)
             pass  # todo: check error
 
     def _set_queue_played_status(self, queue):

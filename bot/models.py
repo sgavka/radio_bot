@@ -130,9 +130,11 @@ class AudioFile(models.Model):
 
 
 class Queue(models.Model):
-    FILE_TYPE = 0
+    AUDIO_FILE_TYPE = 0
+    VOICE_TYPE = 1
     TYPES = {
-        FILE_TYPE: _('File'),
+        AUDIO_FILE_TYPE: _('File'),
+        VOICE_TYPE: _('Voice'),
     }
 
     STATUS_IN_QUEUE = 0

@@ -1,3 +1,4 @@
+import logging
 from telegram import Update, ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import PicklePersistence, Updater, Dispatcher, CallbackContext, CommandHandler, ConversationHandler, \
     CallbackQueryHandler, MessageHandler, Filters
@@ -19,6 +20,8 @@ class BotLogicMain(BotLogic):
     RADIO_STATE = 'radio'
     ADMIN_STATE = 'admin'
 
+    logger = logging.getLogger('bot_logic_main')
+
     def __init__(self):
         self.updater: Updater = None
         self.bot: Bot = None
@@ -29,6 +32,7 @@ class BotLogicMain(BotLogic):
 
     @classmethod
     def error_handler(cls, update: Update, context: CallbackContext):
+        cls.logger.critical(str(context.error), exc_info=True)
         pass
 
     @classmethod

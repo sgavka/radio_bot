@@ -61,6 +61,7 @@ def add_audio_file_to_queue(audio: Audio, radio: Radio) -> bool:
     try:
         with transaction.atomic():
             try:
+                # todo: if download for each radio is necessary to has unique file in AudioFile?
                 audio_file = AudioFile.objects.filter(telegram_file_id=audio.file_unique_id).get()
             except AudioFile.DoesNotExist:
                 audio_file = AudioFile()
@@ -97,7 +98,7 @@ def add_voice_to_queue(voice: Voice, user: User, datetime: datetime, radio: Radi
                 audio_file.file_name = _('%s — %s') % (author, title)
                 audio_file.size = voice.file_size
 
-            _put_audio_file_to_queue(audio_file, radio)
+            _put_voice_to_queue(audio_file, radio)
     except DatabaseError as e:
         success = False
 
@@ -116,7 +117,27 @@ def _put_audio_file_to_queue(audio_file, radio):
     queue.sort = last_sort
     queue.datetime_is_automatic = True
     queue.on_air_always = False
-    queue.type = Queue.FILE_TYPE
+    queue.type = Queue.AUDIO_FILE_TYPE
+    if audio_file.raw_telegram_file_id is not None:
+        queue.status = Queue.STATUS_IN_QUEUE
+    audio_file.save()
+    queue.save()
+
+
+def _put_voice_to_queue(audio_file, radio):
+    # todo: re-use
+    queue = Queue()
+    queue.radio = radio
+    queue.audio_file = audio_file
+    last_sort = Queue.objects.filter(radio=radio).order_by('-sort').values('sort').first()
+    if last_sort:
+        last_sort = last_sort['sort'] + 1
+    else:
+        last_sort = 0
+    queue.sort = last_sort
+    queue.datetime_is_automatic = True
+    queue.on_air_always = False
+    queue.type = Queue.VOICE_TYPE
     if audio_file.raw_telegram_file_id is not None:
         queue.status = Queue.STATUS_IN_QUEUE
     audio_file.save()
