@@ -134,9 +134,9 @@ class QueueGroupCall(object):
         data = EditGroupCallTitle(call=chat.full_chat.call, title=title)
         result = await self.client.send(data)
         if type(result) is pyrogram.raw.types.updates_t.Updates:
-            pass
-        # todo: check errors
-        pass
+            return True
+        else:
+            return False  # todo: check errors
 
     def is_started(self):
         return self._is_started
@@ -381,7 +381,7 @@ class Command(BaseCommand):
                 queue_group_call: QueueGroupCall
                 for group_id, queue_group_call in queue_client.group_calls.items():
                     if hasattr(group_call.chat_peer, 'chat_id'):
-                        if group_id == group_call.chat_peer.chat_id * -1:  # todo: check if this works
+                        if group_id == group_call.chat_peer.channel_id * -100:  # todo: check if this works
                             break
                     elif hasattr(group_call.chat_peer, 'channel_id'):
                         if group_id == get_channel_id(group_call.chat_peer.channel_id):

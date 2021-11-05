@@ -110,8 +110,7 @@ class Command(BaseCommand):
                     ar='48k',
                     **{
                         'b:a': '128k'
-                    }
-                    ) \
+                    }) \
             .overwrite_output() \
             .run()
 
