@@ -1,4 +1,5 @@
 # todo: after restart server put all radio in status STATUS_NOT_ON_AIR
+# todo: sometime duration in seconds in telegram object is broken, need to get from ffmpeg
 import logging
 import multiprocessing
 import os
@@ -305,7 +306,8 @@ class Command(BaseCommand):
                         get_first_queue = sync_to_async(self.get_first_queue)
                         first_queue: Queue = await get_first_queue(radio)
                         actual_queue = first_queue
-                        if not first_queue:
+                        # if there no audio file in queue or the next file is in queue to download
+                        if not first_queue or first_queue.status != Queue.STATUS_IN_QUEUE_AND_DOWNLOADED:
                             await asyncio.sleep(5.0)  # wait some time to download the next audio file
                             continue
 
@@ -380,7 +382,10 @@ class Command(BaseCommand):
             pass
 
     def get_first_queue(self, radio):
-        first_queue = Queue.objects.filter(radio=radio, status__in=[Queue.STATUS_IN_QUEUE_AND_DOWNLOADED]) \
+        first_queue = Queue.objects.filter(radio=radio, status__in=[
+                Queue.STATUS_IN_QUEUE_AND_DOWNLOADED,
+                Queue.STATUS_IN_QUEUE
+            ]) \
             .order_by('sort').first()
         if first_queue:
             # get audio file object (need to do there to have access from queue object outside of this method

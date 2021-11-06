@@ -83,15 +83,18 @@ class Command(BaseCommand):
             raise Exception('Failed to download audio file `%s`!' % (queue.audio_file.id,))
 
         if file:
+            # move file to now play for this radio
             file_name = queue.audio_file.raw_telegram_file_id + '.raw'
             file_path = 'data/now-play-audio/' + str(radio.id) + '/' + file_name
             shutil.move(file, file_path)
-        else:
-            raise Exception('Failed (2) to download audio file `%s`! File: `%s`.' % (queue.audio_file.id, repr(file)))
 
-        # save status
-        queue.status = Queue.STATUS_IN_QUEUE_AND_DOWNLOADED
-        queue.save()
+            # save status
+            queue.status = Queue.STATUS_IN_QUEUE_AND_DOWNLOADED
+            queue.save()
+        else:
+            print('Failed (2) to download audio file `%s`! File: `%s`.' % (queue.audio_file.id, repr(file)))
+            pass
+            # raise Exception('Failed (2) to download audio file `%s`! File: `%s`.' % (queue.audio_file.id, repr(file)))
 
         # close session
         client.terminate()
