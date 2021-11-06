@@ -85,6 +85,7 @@ class Radio(models.Model):
     STATUS_ERROR_UNEXPECTED = 10
     STATUS_ERROR_IS_NOT_AUTHORIZED = 11
     STATUS_ERROR_CANT_CONNECT = 12
+    STATUS_ERROR_NETWORK = 13
     STATUSES = {
         STATUS_ON_AIR: 'On air',
         STATUS_NOT_ON_AIR: 'Not on air',
@@ -100,6 +101,7 @@ class Radio(models.Model):
         STATUS_ERROR_UNEXPECTED: 'unexpected error',
         STATUS_ERROR_IS_NOT_AUTHORIZED: 'Telegram Account is not authorized!',
         STATUS_ERROR_CANT_CONNECT: 'Telegram Account can\'t connect!',
+        STATUS_ERROR_NETWORK: 'On server was network errors!',
     }
 
     name = models.CharField(max_length=255, blank=False)
@@ -154,12 +156,15 @@ class Queue(models.Model):
     STATUS_DELETED = 4
     STATUS_PROCESSING = 5
     STATUS_ERROR_CANT_DOWNLOAD = 6
+    STATUS_PLAYING = 7
     STATUSES = {
         STATUS_IN_QUEUE: _('In queue'),
         STATUS_HAS_ERRORS: _('Has errors'),
         STATUS_PLAYED: _('Played'),
         STATUS_WAIT_TO_CALCULATE_START_DATETIME: _('Wait to calculate start date time'),
         STATUS_DELETED: _('Deleted'),
+        STATUS_PROCESSING: _('Processing...'),
+        STATUS_ERROR_CANT_DOWNLOAD: _('Can\'t download'),
     }
 
     radio = models.ForeignKey(Radio, models.CASCADE)

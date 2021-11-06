@@ -87,7 +87,7 @@ class Command(BaseCommand):
             elif queue.type == Queue.VOICE_TYPE:
                 message = telegram_bot.send_voice(radio.download_chat_id, audio_file.telegram_file_id)
             else:
-                raise Exception('Unknown queue type `%s`!' % (queue.type,))  # todo: handle this exclusion
+                raise Exception('Unknown queue type `%s`! Queue ID: `%s`.' % (queue.type, queue.id))  # todo: handle this exclusion
         except BadRequest as e:
             self.logger.critical(str(e), exc_info=True)
             raise Exception('Bad request while send audio/voice to chat. Queue ID: `%s`!' % (queue.id,))
@@ -103,7 +103,7 @@ class Command(BaseCommand):
             else:
                 queue.status = Queue.STATUS_ERROR_CANT_DOWNLOAD
                 audio_file.save()
-                raise Exception('Message has not audio/voice! Message ID: %s' % (message.message_id,))
+                raise Exception('Message has not audio/voice! Message ID: `%s`. Queue ID: `%s`.' % (message.message_id, queue.id))
                 # todo: handle this exclusion
 
         # download audio file
@@ -112,7 +112,7 @@ class Command(BaseCommand):
         else:
             queue.status = Queue.STATUS_ERROR_CANT_DOWNLOAD
             audio_file.save()
-            raise Exception('Message has not audio/voice (2)! Message ID: %s' % (message.message_id,))  # todo: handle this case
+            raise Exception('Message has not audio/voice (2)! Message ID: `%s`. Queue ID: `%s`.' % (message.message_id, queue.id))  # todo: handle this case
 
         # convert audio file to raw
         file_name_raw = audio.file_id + '.raw'

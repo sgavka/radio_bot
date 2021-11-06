@@ -21,6 +21,7 @@ from pyrogram.utils import get_channel_id
 from pytgcalls.exceptions import GroupCallNotFoundError
 from telegram import Bot, ParseMode
 from django.utils.translation import ugettext as _
+from telegram.error import NetworkError
 from bot.models import Radio, BroadcastUser, Queue, TelegramUser
 from bot.services.bot import get_bot_from_db
 
@@ -81,7 +82,6 @@ class QueueClient(object):
         return session_name, sessions_directory
 
     def init_radio_session(self, broadcast_user_uid: int, radio_id: int):
-        # todo: move all strings to constants or config
         # init sessions directory
         sessions_directory = 'data/sessions'
         if not os.path.exists(sessions_directory):
@@ -138,7 +138,7 @@ class QueueGroupCall(object):
         if type(result) is pyrogram.raw.types.updates_t.Updates:
             return True
         else:
-            return False  # todo: check errors
+            return False  # todo: check errors (write to logs)
 
     def is_started(self):
         return self._is_started
@@ -193,7 +193,8 @@ class Command(BaseCommand):
                 except StopIteration:
                     pass
         except BaseException as e:
-            self.logger.critical(str(e), exc_info=True)
+            logger = logging.getLogger('broadcast')
+            logger.critical(str(e), exc_info=True)
             raise e
 
     def worker(self, radio: Radio, queue):
@@ -265,9 +266,16 @@ class Command(BaseCommand):
                     group_call = queue_group_call.get()
 
                     if radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
+                        # set radio status
                         radio.status = Radio.STATUS_NOT_ON_AIR
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
+
+                        # is broadcast is stopped set current queue file again to queue
+                        actual_queue.status = Queue.STATUS_IN_QUEUE
+                        save_data_to_db = sync_to_async(Command.save_data_to_db)
+                        await save_data_to_db(actual_queue)
+
                         await queue_group_call.set_title(_('Stopped!'))
                         break
 
@@ -289,37 +297,48 @@ class Command(BaseCommand):
                         queue_group_call._is_now_playing = True
                         if type(actual_queue) is Queue:
                             await queue_group_call.set_title(actual_queue.audio_file.get_full_title())
-                        continue
+                            continue
+                        else:
+                            queue_group_call._is_now_playing = True
 
                     try:
                         await queue_group_call.start(radio.chat_id, radio)
                         if not start_message_is_sent:
                             start_message_is_sent = True
-                            await self.send_message(_('Radio is On Air!'), radio)
                             await queue_group_call.set_title(_('Starting...'))
+                            await self.send_message(_('Radio is On Air!'), radio)
                     except OperationalError as e:
                         self.logger.critical(str(e), exc_info=True)
                         raise e  # todo: that is this error?
 
                     if queue_group_call.is_started() and not queue_group_call.is_now_playing() \
-                            and not radio.status == Radio.STATUS_ON_PAUSE:
+                            and radio.status != Radio.STATUS_ON_PAUSE:
                         get_first_queue = sync_to_async(self.get_first_queue)
                         first_queue: Queue = await get_first_queue(radio)
                         actual_queue = first_queue
+
                         # if there no audio file in queue or the next file is in queue to download
                         if not first_queue:
                             # todo: set status and send message (there is no file in queue or next file is
-                            # downloading)
+                            #  downloading)
                             await asyncio.sleep(5.0)  # wait some time to download the next audio file
                             continue
 
+                        # disable play on repeat same file
+                        group_call.play_on_repeat = False
+
+                        # set file to play
                         file_name = first_queue.audio_file.telegram_file_id + '.raw'
                         file_path = 'data/now-play-audio/' + str(radio.id) + '/' + file_name
-
                         queue_group_call.set_queue(first_queue)
-                        # todo: maybe create status for queue that play now (to liberate place in download queue)
-                        group_call.play_on_repeat = False
                         queue_group_call.set_file(file_path)
+
+                        # set queue file status
+                        first_queue.status = Queue.STATUS_PLAYING
+                        save_data_to_db = sync_to_async(Command.save_data_to_db)
+                        await save_data_to_db(first_queue)
+
+                        # set voice chat title
                         await queue_group_call.set_title(first_queue.audio_file.get_full_title())
 
                     # fix: make playout_ended handler work
@@ -338,6 +357,17 @@ class Command(BaseCommand):
                     if match:
                         await asyncio.sleep(int(match.group(1)))
                     else:
+                        if radio:
+                            radio.status = Radio.STATUS_ERROR_UNEXPECTED
+                            save_data_to_db = sync_to_async(Command.save_data_to_db)
+                            await save_data_to_db(radio)
+
+                        if actual_queue:
+                            # is broadcast is stopped set current queue file again to queue
+                            actual_queue.status = Queue.STATUS_IN_QUEUE
+                            save_data_to_db = sync_to_async(Command.save_data_to_db)
+                            await save_data_to_db(actual_queue)
+
                         self.logger.critical('Can\'t parse FloodWait exception to wait!', exc_info=True)
                         self.logger.critical(str(e), exc_info=True)
                         raise e
@@ -357,26 +387,57 @@ class Command(BaseCommand):
                     radio.status = Radio.STATUS_ERROR_UNEXPECTED
                     save_data_to_db = sync_to_async(Command.save_data_to_db)
                     await save_data_to_db(radio)
+
+                    if actual_queue:
+                        # is broadcast is stopped set current queue file again to queue
+                        actual_queue.status = Queue.STATUS_IN_QUEUE
+                        save_data_to_db = sync_to_async(Command.save_data_to_db)
+                        await save_data_to_db(actual_queue)
+
                     await self.send_message(
                         _('There is unexpected error, please address to @sgavka!'),
                         radio
                     )
                     break
-                except Exception as e:
-                    self.logger.critical(str(e), exc_info=True)
-                    radio.status = Radio.STATUS_ERROR_UNEXPECTED
-                    save_data_to_db = sync_to_async(Command.save_data_to_db)
-                    await save_data_to_db(radio)
-                    await self.send_message(
-                        _('There is unexpected error, please address to @sgavka!'),
-                        radio
-                    )
-                    break
-        except Exception as e:
+        except NetworkError as e:
+            radio.status = Radio.STATUS_ERROR_NETWORK
+            save_data_to_db = sync_to_async(Command.save_data_to_db)
+            await save_data_to_db(radio)
+
+            if actual_queue:
+                # is broadcast is stopped set current queue file again to queue
+                actual_queue.status = Queue.STATUS_IN_QUEUE
+                save_data_to_db = sync_to_async(Command.save_data_to_db)
+                await save_data_to_db(actual_queue)
+
             self.logger.critical(str(e), exc_info=True)
+
+            pass
+        except KeyboardInterrupt as e:
+            radio.status = Radio.STATUS_NOT_ON_AIR
+            save_data_to_db = sync_to_async(Command.save_data_to_db)
+            await save_data_to_db(radio)
+
+            if actual_queue:
+                # is broadcast is stopped set current queue file again to queue
+                actual_queue.status = Queue.STATUS_IN_QUEUE
+                save_data_to_db = sync_to_async(Command.save_data_to_db)
+                await save_data_to_db(actual_queue)
+
+            raise e
+        except Exception as e:
             radio.status = Radio.STATUS_ERROR_UNEXPECTED
             save_data_to_db = sync_to_async(Command.save_data_to_db)
             await save_data_to_db(radio)
+
+            if actual_queue:
+                # is broadcast is stopped set current queue file again to queue
+                actual_queue.status = Queue.STATUS_IN_QUEUE
+                save_data_to_db = sync_to_async(Command.save_data_to_db)
+                await save_data_to_db(actual_queue)
+
+            self.logger.critical(str(e), exc_info=True)
+
             await self.send_message(
                 _('There is unexpected error, please address to @sgavka!'),
                 radio
@@ -419,9 +480,9 @@ class Command(BaseCommand):
             if last_queue:
                 set_queue_played_status = sync_to_async(self._set_queue_played_status)
                 await set_queue_played_status(last_queue)
+            await queue_group_call.set_title(_('Next track...'))
             queue_group_call.set_queue(None)
             queue_group_call._is_now_playing = False
-            await queue_group_call.set_title(_('Next track...'))
             # delete prev file from disk
             os.remove(file_name)
         else:

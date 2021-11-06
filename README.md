@@ -86,9 +86,9 @@ Select new configuration and run Debug.
 -- every 1-2 hours.
 
 # ToDo
-- add all commands to readme.md
 - make visible then model is not saved
 - add validation for chat_id (is group or channel) & download_chat_id (is chat)
+- create script to remove abandoned files from now-play-audio
 
 # Develop
 

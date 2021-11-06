@@ -771,21 +771,30 @@ class BotLogicRadio(BotLogic):
         for queue in queues:
             audio_file: AudioFile = queue.audio_file
 
-            # todo: show audio file that is in the queue
-            # todo: mark italian played audio files
             # todo: dont allow to move played files or if played file is moved over now playing it is marked as not
             #  played
-            # todo: set pointer position to now playing audio file
-            if queue.status == Queue.STATUS_PROCESSING:
-                full_title = '[%s-%s] [%s] %s' % (queue.id, queue.sort, _('Processing...'), audio_file.get_full_title())
-            else:
-                full_title = '%s' % (audio_file.get_full_title(),)
-                full_title = '[%s-%s] %s' % (queue.id, queue.sort, audio_file.get_full_title(),)  # todo: delete
+            status = ''
+            if queue.status == Queue.STATUS_PROCESSING or queue.status == Queue.STATUS_ERROR_CANT_DOWNLOAD:
+                status = Queue.STATUSES[queue.status]
+                status = _(' [[%s]]') % (status,)
+
+            is_playing = ''
+            if queue.status == Queue.STATUS_PLAYING:
+                is_playing = "\U000023FA "
+
+            is_played = queue.status == Queue.STATUS_PLAYED
+            sort = queue.sort
+
+            pointer = ''
             if pointer_start <= index <= pointer_end:
-                title = '*%s*' % (full_title,)
-            else:
-                title = full_title
-            queue_list.append(title)
+                pointer = "\U000025B6 "
+
+            line = _('%s%s%s%s: %s') % (pointer, is_playing, sort, status, audio_file.get_full_title())
+
+            if is_played:
+                line = _('_%s_') % (line,)
+
+            queue_list.append(line)
             index += 1
 
         queue_list_str = '\n'.join(queue_list)
@@ -961,7 +970,7 @@ class BotLogicRadio(BotLogic):
         return ''
 
     @classmethod
-    def get_data_strings(cls, radio):
+    def get_data_strings(cls, radio: Radio):
         data_strings = [
             _('Name**: *%s*') % (radio.name if radio.name else r'—',),
             _('Title Template: *%s*') % (radio.title_template if radio.title_template else r'—',),
@@ -969,6 +978,10 @@ class BotLogicRadio(BotLogic):
             _('Group/channel: *%s*') % (radio.chat_id if radio.chat_id else r'—',),
             _('Download chat: *%s*') % (radio.download_chat_id if radio.download_chat_id else r'—',),
         ]
+
+        playing = radio.queue_set.filter(status=Queue.STATUS_PLAYING).first()
+        if playing:
+            data_strings.append(_('Now play: *%s*') % (playing.audio_file.get_full_title(),),)
 
         return data_strings
 
@@ -998,7 +1011,7 @@ class BotLogicRadio(BotLogic):
         if cls.bot_context.is_edit_action():
             manage_queue_row.append(
                 InlineKeyboardButton(
-                    _('Manage Queue'),
+                    _("\U0001F4CB Manage Queue"),
                     callback_data=cls.MANAGE_QUEUE_CALLBACK_DATA),
             )
         if len(manage_queue_row):
@@ -1006,6 +1019,7 @@ class BotLogicRadio(BotLogic):
 
         on_air_row = []
         # todo: need to check if user can press the button (depends on status)
+        # todo: add button on started broadcast to restart
         if cls.bot_context.is_edit_action():
             if radio.status == Radio.STATUS_NOT_ON_AIR:
                 on_air_row.append(
@@ -1069,7 +1083,7 @@ class BotLogicRadio(BotLogic):
                         callback_data=cls.STOP_AIR_CALLBACK_DATA
                     ),
                 )
-            elif Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED <= radio.status <= Radio.STATUS_ERROR_CANT_CONNECT:
+            elif Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED <= radio.status <= Radio.STATUS_ERROR_NETWORK:
                 on_air_row.append(
                     InlineKeyboardButton(
                         _('Error: %s') % (Radio.STATUSES[radio.status],),
