@@ -129,8 +129,6 @@ class UserToRadio(models.Model):
 class AudioFile(models.Model):
     telegram_file_id = models.TextField(blank=True, null=True)
     telegram_unique_id = models.TextField(blank=True, null=True)
-    raw_telegram_file_id = models.TextField(blank=True, null=True)
-    raw_telegram_unique_id = models.TextField(blank=True, null=True)
     title = models.CharField(max_length=255, blank=True, null=True)
     author = models.CharField(max_length=255, blank=True, null=True)
     file_name = models.CharField(max_length=255, blank=True, null=True)
@@ -155,7 +153,7 @@ class Queue(models.Model):
     STATUS_WAIT_TO_CALCULATE_START_DATETIME = 3  # todo: this is really necessary?
     STATUS_DELETED = 4
     STATUS_PROCESSING = 5
-    STATUS_IN_QUEUE_AND_DOWNLOADED = 6
+    STATUS_ERROR_CANT_DOWNLOAD = 6
     STATUSES = {
         STATUS_IN_QUEUE: _('In queue'),
         STATUS_HAS_ERRORS: _('Has errors'),

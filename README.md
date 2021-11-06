@@ -100,8 +100,5 @@ Select new configuration and run Debug.
 ### Format raw files
 > docker-compose run web python manage.py format_raw_files
 
-### Download actual queue
-> docker-compose run web python manage.py download_actual_queue
-
 ### Broadcast
 > docker-compose run web python manage.py broadcast

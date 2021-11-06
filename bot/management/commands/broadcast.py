@@ -307,15 +307,17 @@ class Command(BaseCommand):
                         first_queue: Queue = await get_first_queue(radio)
                         actual_queue = first_queue
                         # if there no audio file in queue or the next file is in queue to download
-                        if not first_queue or first_queue.status != Queue.STATUS_IN_QUEUE_AND_DOWNLOADED:
+                        if not first_queue:
+                            # todo: set status and send message (there is no file in queue or next file is
+                            # downloading)
                             await asyncio.sleep(5.0)  # wait some time to download the next audio file
                             continue
 
-                        file_name = first_queue.audio_file.raw_telegram_file_id + '.raw'
+                        file_name = first_queue.audio_file.telegram_file_id + '.raw'
                         file_path = 'data/now-play-audio/' + str(radio.id) + '/' + file_name
 
                         queue_group_call.set_queue(first_queue)
-
+                        # todo: maybe create status for queue that play now (to liberate place in download queue)
                         group_call.play_on_repeat = False
                         queue_group_call.set_file(file_path)
                         await queue_group_call.set_title(first_queue.audio_file.get_full_title())
@@ -382,10 +384,7 @@ class Command(BaseCommand):
             pass
 
     def get_first_queue(self, radio):
-        first_queue = Queue.objects.filter(radio=radio, status__in=[
-                Queue.STATUS_IN_QUEUE_AND_DOWNLOADED,
-                Queue.STATUS_IN_QUEUE
-            ]) \
+        first_queue = Queue.objects.filter(radio=radio, status=Queue.STATUS_IN_QUEUE) \
             .order_by('sort').first()
         if first_queue:
             # get audio file object (need to do there to have access from queue object outside of this method

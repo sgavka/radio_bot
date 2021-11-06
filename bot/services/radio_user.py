@@ -118,8 +118,6 @@ def _put_audio_file_to_queue(audio_file, radio):
     queue.datetime_is_automatic = True
     queue.on_air_always = False
     queue.type = Queue.AUDIO_FILE_TYPE
-    if audio_file.raw_telegram_file_id is not None:
-        queue.status = Queue.STATUS_IN_QUEUE
     audio_file.save()
     queue.save()
 
@@ -138,7 +136,5 @@ def _put_voice_to_queue(audio_file, radio):
     queue.datetime_is_automatic = True
     queue.on_air_always = False
     queue.type = Queue.VOICE_TYPE
-    if audio_file.raw_telegram_file_id is not None:
-        queue.status = Queue.STATUS_IN_QUEUE
     audio_file.save()
     queue.save()

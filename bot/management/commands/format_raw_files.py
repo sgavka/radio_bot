@@ -3,26 +3,40 @@ import logging
 import os
 from shutil import copyfile
 import ffmpeg
-import pyrogram
 from django.core.management import BaseCommand
 from django.db import transaction
+from django.db.models import Count, Q
 from pyrogram import Client
 from telegram import Bot, Message
-from telegram.error import NetworkError, BadRequest
+from telegram.error import BadRequest
 from bot.models import Queue
 from bot.services.bot import get_bot_from_db
 
 
 class Command(BaseCommand):
+    COUNT_OF_FILES_TO_DOWNLOAD_FOR_RADIO = 5
+
     def handle(self, *args, **options):
         self.logger = logging.getLogger('format_raw_files')
 
         # todo: maybe use multiprocessing
         try:
             while True:
-                queues = Queue.objects.filter(audio_file__raw_telegram_file_id=None).order_by('sort')
+                radios = Queue.objects \
+                    .annotate(cnt=Count('radio_id')) \
+                    .values('radio_id') \
+                    .filter(
+                    cnt__gte=self.COUNT_OF_FILES_TO_DOWNLOAD_FOR_RADIO,
+                    status=Queue.STATUS_IN_QUEUE
+                ).annotate(cnt=Count('radio_id')) \
+                    .values('radio_id')
+                queues = Queue.objects
+                if radios:
+                    queues = queues.filter(~Q(radio__in=radios))
+                queue = queues.filter(status=Queue.STATUS_PROCESSING) \
+                    .order_by('sort').first()
 
-                for queue in queues:
+                if queue:
                     self.prepare(queue)
         except BaseException as e:
             self.logger.critical(str(e), exc_info=True)
@@ -69,7 +83,7 @@ class Command(BaseCommand):
 
         try:
             if queue.type == Queue.AUDIO_FILE_TYPE:
-                message = telegram_bot.send_document(radio.download_chat_id, audio_file.telegram_file_id)
+                message = telegram_bot.send_audio(radio.download_chat_id, audio_file.telegram_file_id)
             elif queue.type == Queue.VOICE_TYPE:
                 message = telegram_bot.send_voice(radio.download_chat_id, audio_file.telegram_file_id)
             else:
@@ -87,18 +101,22 @@ class Command(BaseCommand):
             elif message.voice:
                 audio = message.voice
             else:
+                queue.status = Queue.STATUS_ERROR_CANT_DOWNLOAD
+                audio_file.save()
                 raise Exception('Message has not audio/voice! Message ID: %s' % (message.message_id,))
                 # todo: handle this exclusion
 
         # download audio file
         if audio is not None:
-            file = client.download_media(audio.file_id)
+            file = client.download_media(audio)
         else:
+            queue.status = Queue.STATUS_ERROR_CANT_DOWNLOAD
+            audio_file.save()
             raise Exception('Message has not audio/voice (2)! Message ID: %s' % (message.message_id,))  # todo: handle this case
 
         # convert audio file to raw
         file_name_raw = audio.file_id + '.raw'
-        file_directory = 'data/tmp-audio/'
+        file_directory = 'data/now-play-audio/' + str(radio.id) + '/'
         if not os.path.exists(file_directory):
             os.mkdir(file_directory)
         file_path_raw = file_directory + file_name_raw
@@ -114,40 +132,16 @@ class Command(BaseCommand):
             .overwrite_output() \
             .run()
 
-        # delete original file
-        os.remove(file)
+        # set new file id
+        audio_file.telegram_file_id = audio.file_id
+        audio_file.telegram_unique_id = audio.file_unique_id
+        with transaction.atomic():
+            Queue.objects.filter(audio_file=audio_file).update(status=Queue.STATUS_IN_QUEUE)
+            audio_file.save()
 
-        # send raw file to telegram
-        upload_success = False
-        with open(file_path_raw, 'rb') as file:
-            try:
-                message: pyrogram.types.messages_and_media.message.Message = client.send_document(
-                    chat_id=radio.download_chat_id,
-                    document=file,
-                    file_name=audio_file.file_name,
-                    caption=audio_file.title,
-                    force_document=True
-                    # timeout=10*60  # 10 minutes
-                )
-            except NetworkError as e:
-                raise e
-                # todo: timeout error
-            if type(message) is pyrogram.types.messages_and_media.message.Message:
-                upload_success = True
-        if upload_success:
-            message = client.get_messages(message.chat.id, message.message_id)
-            audio_file.raw_telegram_file_id = message.document.file_id
-            audio_file.raw_telegram_unique_id = message.document.file_unique_id
-            with transaction.atomic():
-                Queue.objects.filter(audio_file=audio_file).update(status=Queue.STATUS_IN_QUEUE)
-                audio_file.save()
-        else:
-            raise Exception('Raw of audio file `%s` can\'t be send to Telegram!' % (audio_file.id,))
-            pass  # todo: repeat or maybe set error status
+        # remove tmp file
+        os.remove(file)
 
         # close session
         client.terminate()
         client.disconnect()
-
-        # delete raw file
-        os.remove(file_path_raw)
