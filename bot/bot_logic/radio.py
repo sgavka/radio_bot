@@ -1073,14 +1073,14 @@ class BotLogicRadio(BotLogic):
             elif radio.status == Radio.STATUS_ON_PAUSE:
                 on_air_row.append(
                     InlineKeyboardButton(
-                        _('Resume'),
-                        callback_data=cls.RESUME_AIR_CALLBACK_DATA
+                        _('%s On Pause (Stop)') % ("\U0001F7E0",),
+                        callback_data=cls.STOP_AIR_CALLBACK_DATA
                     ),
                 )
                 on_air_row.append(
                     InlineKeyboardButton(
-                        _('%s On Pause (Stop)') % ("\U0001F7E0",),
-                        callback_data=cls.STOP_AIR_CALLBACK_DATA
+                        _('Resume'),
+                        callback_data=cls.RESUME_AIR_CALLBACK_DATA
                     ),
                 )
             elif Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED <= radio.status <= Radio.STATUS_ERROR_NETWORK:
