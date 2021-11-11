@@ -351,8 +351,7 @@ class Command(BaseCommand):
 
                         # if there no audio file in queue or the next file is in queue to download
                         if not first_queue:
-                            # todo: set status and send message (there is no file in queue or next file is
-                            #  downloading)
+                            await queue_group_call.set_title(_('Queue is empty...'))
                             await asyncio.sleep(5.0)  # wait some time to download the next audio file
                             continue
 
