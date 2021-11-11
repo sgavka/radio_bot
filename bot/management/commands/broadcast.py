@@ -16,9 +16,11 @@ from sqlite3 import OperationalError
 from pyrogram import Client
 from pyrogram.errors import FloodWait, ChannelInvalid
 from pyrogram.raw.functions.channels import GetFullChannel
-from pyrogram.raw.functions.phone import EditGroupCallTitle
+from pyrogram.raw.functions.phone import EditGroupCallTitle, GetGroupParticipants
+from pyrogram.raw.types.phone import GroupParticipants
 from pyrogram.utils import get_channel_id
 from pytgcalls.exceptions import GroupCallNotFoundError
+from pytgcalls.implementation import GroupCallFile
 from telegram import Bot, ParseMode
 from django.utils.translation import ugettext as _
 from telegram.error import NetworkError
@@ -95,11 +97,33 @@ class QueueGroupCall(object):
         self.client = client
         self.group_call = pytgcalls.GroupCallFactory(client).get_file_group_call()
         self.is_handler_playout_ended_set = False
+        self.is_handler_participant_list_updated_set = False
         self.storage = storage
         self._is_started = False
         self._is_now_playing = False
+        self._asking_pause = False
+        self._asking_resume = False
         self.queue = None
         self.radio = None
+        self.participants_count = None
+
+    def is_asking_pause(self):
+        return self._asking_pause
+
+    def is_asking_resume(self):
+        return self._asking_resume
+
+    def asking_pause(self):
+        self._asking_pause = True
+
+    def unasking_pause(self):
+        self._asking_pause = False
+
+    def asking_resume(self):
+        self._asking_resume = True
+
+    def unasking_resume(self):
+        self._asking_resume = False
 
     def get(self) -> pytgcalls.GroupCall:
         return self.group_call
@@ -108,6 +132,11 @@ class QueueGroupCall(object):
         if not self.is_handler_playout_ended_set:
             self.group_call.on_playout_ended(playout_ended)
             self.is_handler_playout_ended_set = True
+
+    def add_handler_participant_list_updated(self, handler):
+        if not self.is_handler_participant_list_updated_set:
+            self.group_call.on_participant_list_updated(handler)
+            self.is_handler_participant_list_updated_set = True
 
     async def start(self, chat_id: int, radio: Radio):
         if not self._is_started:
@@ -263,6 +292,7 @@ class Command(BaseCommand):
 
                     queue_group_call = queue_client.init_group_call(radio.chat_id)
                     queue_group_call.add_handler_playout_ended(self.playout_ended)
+                    queue_group_call.add_handler_participant_list_updated(self.participant_list_updated)
                     group_call = queue_group_call.get()
 
                     if radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
@@ -279,27 +309,29 @@ class Command(BaseCommand):
                         await queue_group_call.set_title(_('Stopped!'))
                         break
 
-                    if radio.status == Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST:
+                    if radio.status == Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST\
+                            or queue_group_call.is_asking_pause():
                         radio.status = Radio.STATUS_ON_PAUSE
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
                         group_call.pause_playout()
                         queue_group_call._is_now_playing = False
+                        queue_group_call.unasking_pause()
                         await queue_group_call.set_title(_('On Pause!'))
                         continue
 
-                    if radio.status == Radio.STATUS_ASKING_FOR_RESUME_BROADCAST:
+                    if radio.status == Radio.STATUS_ASKING_FOR_RESUME_BROADCAST\
+                            or queue_group_call.is_asking_resume():
                         radio.status = Radio.STATUS_ON_AIR
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
                         await queue_group_call.set_title(_('Resuming...'))
                         group_call.resume_playout()
                         queue_group_call._is_now_playing = True
+                        queue_group_call.unasking_resume()
                         if type(actual_queue) is Queue:
                             await queue_group_call.set_title(actual_queue.audio_file.get_full_title())
                             continue
-                        else:
-                            queue_group_call._is_now_playing = True
 
                     try:
                         await queue_group_call.start(radio.chat_id, radio)
@@ -337,6 +369,15 @@ class Command(BaseCommand):
                         first_queue.status = Queue.STATUS_PLAYING
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(first_queue)
+
+                        # inform then queue is near to end
+                        get_queue_count = sync_to_async(self.get_queue_count)
+                        count = await get_queue_count(radio)
+                        if count <= 5:
+                            await self.send_message(
+                                _('In your queue is only %s tracks.') % (count,),
+                                radio
+                            )
 
                         # set voice chat title
                         await queue_group_call.set_title(first_queue.audio_file.get_full_title())
@@ -452,6 +493,10 @@ class Command(BaseCommand):
             audio_file = first_queue.audio_file
         return first_queue
 
+    def get_queue_count(self, radio):
+        count = Queue.objects.filter(radio=radio, status__in=[Queue.STATUS_IN_QUEUE, Queue.STATUS_PROCESSING]).count()
+        return count
+
     def refresh_data_from_db(self, model):
         model.refresh_from_db()
         return model
@@ -460,8 +505,51 @@ class Command(BaseCommand):
     def save_data_to_db(cls, model):
         model.save()
 
+    async def participant_list_updated(self, group_call: GroupCallFile, participants):
+        queue_group_call = self._get_queue_group_call_in_handler(group_call)
+        if queue_group_call is not False:
+            data = GetGroupParticipants(
+                call=group_call.group_call,
+                ids=[],
+                sources=[],
+                offset='',
+                limit=5000,
+            )
+
+            # data = GetGroupCall(call=group_call.group_call)
+            group_participants: GroupParticipants = await queue_group_call.client.send(data)
+            if type(group_participants) is GroupParticipants:
+                if group_participants.count - 1 == 0:
+                    await queue_group_call.set_title(_('Pausing...'))
+                    queue_group_call.asking_pause()
+                else:
+                    await queue_group_call.set_title(_('Resuming...'))
+                    queue_group_call.asking_resume()
+            else:
+                self.logger.error(
+                    _('Can\'n get GroupParticipants for group call for queue ID: `%s`.') % (
+                        queue_group_call.queue.id,
+                    )
+                )
+                pass  # todo: some times all works but code fall there, why?
+
     async def playout_ended(self, group_call, file_name):
         # mark prev queue as played
+        queue_group_call = self._get_queue_group_call_in_handler(group_call)
+        if queue_group_call is not False:
+            last_queue = queue_group_call.get_queue()
+            if last_queue:
+                set_queue_played_status = sync_to_async(self._set_queue_played_status)
+                await set_queue_played_status(last_queue)
+            await queue_group_call.set_title(_('Next track...'))
+            queue_group_call.set_queue(None)
+            queue_group_call._is_now_playing = False
+            # delete prev file from disk
+            os.remove(file_name)
+        else:
+            self.logger.error('Can\'t find group call to end playout!', exc_info=True)
+
+    def _get_queue_group_call_in_handler(self, group_call) -> QueueGroupCall:
         queue_group_call = None
         group_id = None
         queue_client: QueueClient
@@ -476,17 +564,8 @@ class Command(BaseCommand):
                         if group_id == get_channel_id(group_call.chat_peer.channel_id):
                             break
         if queue_group_call and type(group_id) is int:
-            last_queue = queue_group_call.get_queue()
-            if last_queue:
-                set_queue_played_status = sync_to_async(self._set_queue_played_status)
-                await set_queue_played_status(last_queue)
-            await queue_group_call.set_title(_('Next track...'))
-            queue_group_call.set_queue(None)
-            queue_group_call._is_now_playing = False
-            # delete prev file from disk
-            os.remove(file_name)
-        else:
-            self.logger.error('Can\'t find group call to end playout!', exc_info=True)
+            return queue_group_call
+        return False
 
     def _set_queue_played_status(self, queue):
         queue.status = Queue.STATUS_PLAYED

@@ -130,6 +130,8 @@ STATIC_URL = '/static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+ADMINS = [('Gavka Serhiy', 'sgavka@gmail.com'),]
+
 # Logging configuration
 
 LOGGING = {

@@ -156,7 +156,7 @@ class Queue(models.Model):
     STATUS_DELETED = 4
     STATUS_PROCESSING = 5
     STATUS_ERROR_CANT_DOWNLOAD = 6
-    STATUS_PLAYING = 7
+    STATUS_PLAYING = 7  # todo: deal with abandoned queue with this status
     STATUSES = {
         STATUS_IN_QUEUE: _('In queue'),
         STATUS_HAS_ERRORS: _('Has errors'),

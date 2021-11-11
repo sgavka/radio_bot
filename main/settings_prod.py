@@ -25,6 +25,8 @@ DATABASES = {
     }
 }
 
+ADMINS = [('Gavka Serhiy', 'sgavka@gmail.com'),]
+
 # Logging configuration
 
 LOGGING = {
