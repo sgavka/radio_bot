@@ -12,7 +12,7 @@ from bot.models import Radio, TelegramUser, UserToRadio, AudioFile, Queue, Broad
 from bot.services import radio_user
 from bot.services.broadcast_user import get_owned_broadcasters
 from bot.services.radio_user import get_radio_queue, delete_queue_item, move_up_queue_item, move_down_queue_item, \
-    count_of_queue_items
+    count_of_queue_items, shuffle_all, shuffle_unplayed
 
 
 class BotContextRadio(BotContext):
@@ -259,6 +259,8 @@ class BotLogicRadio(BotLogic):
     MOVE_DOWN_CALLBACK_DATA = 'move_down'
     MOVE_UP_CALLBACK_DATA = 'move_up'
     DELETE_CALLBACK_DATA = 'delete'
+    SHUFFLE_UNPLAYED_CALLBACK_DATA = 'shuffle_unplayed'
+    SHUFFLE_ALL_CALLBACK_DATA = 'shuffle_all'
     NEXT_PAGE_CALLBACK_DATA = 'next_page'
     PREV_PAGE_CALLBACK_DATA = 'prev_page'
     STOP_AIR_CALLBACK_DATA = 'manage_queue_stop_air'
@@ -307,6 +309,8 @@ class BotLogicRadio(BotLogic):
                     CallbackQueryHandler(cls.move_down_action, pattern=cls.MOVE_DOWN_CALLBACK_DATA),
                     CallbackQueryHandler(cls.move_up_action, pattern=cls.MOVE_UP_CALLBACK_DATA),
                     CallbackQueryHandler(cls.delete_action, pattern=cls.DELETE_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.shuffle_unplayed_action, pattern=cls.SHUFFLE_UNPLAYED_CALLBACK_DATA),
+                    CallbackQueryHandler(cls.shuffle_all_action, pattern=cls.SHUFFLE_ALL_CALLBACK_DATA),
                     CallbackQueryHandler(cls.prev_page_action, pattern=cls.PREV_PAGE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.next_page_action, pattern=cls.NEXT_PAGE_CALLBACK_DATA),
                     CallbackQueryHandler(cls.refresh_queue_list_action, pattern=cls.REFRESH_QUEUE_LIST_CALLBACK_DATA),
@@ -493,6 +497,28 @@ class BotLogicRadio(BotLogic):
         item = list(queues)[pointer_start]
         cls.bot_context.set_manage_queue_pointer((pointer_start - 1, pointer_end - 1))
         move_up_queue_item(item)
+        cls.update_queue_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def shuffle_unplayed_action(cls, update: Update, context: CallbackContext):
+        shuffle_unplayed(cls.bot_context.get_actual_object())
+
+        cls.update_queue_message()
+
+        context.bot.answer_callback_query(update.callback_query.id)
+        return cls.MANAGE_QUEUE_CALLBACK_STATE
+
+    @classmethod
+    @handlers_wrapper
+    @BotContextRadio.wrapper
+    def shuffle_all_action(cls, update: Update, context: CallbackContext):
+        shuffle_all(cls.bot_context.get_actual_object())
+
         cls.update_queue_message()
 
         context.bot.answer_callback_query(update.callback_query.id)
@@ -699,6 +725,16 @@ class BotLogicRadio(BotLogic):
             InlineKeyboardButton(
                 _('Delete'),
                 callback_data=cls.DELETE_CALLBACK_DATA),
+        )
+        actions.append(
+            InlineKeyboardButton(
+                _("\U0001F500"),
+                callback_data=cls.SHUFFLE_UNPLAYED_CALLBACK_DATA),
+        )
+        actions.append(
+            InlineKeyboardButton(
+                _("\U0001F500 All"),
+                callback_data=cls.SHUFFLE_ALL_CALLBACK_DATA),
         )
         if is_selected_one_item:
             if pointer_is_not_on_top:

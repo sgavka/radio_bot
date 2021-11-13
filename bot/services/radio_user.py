@@ -1,4 +1,6 @@
 import datetime as datetime
+import random
+
 from django.db import transaction, DatabaseError
 from django.db.models import Q
 from telegram import Audio, Voice, User
@@ -138,3 +140,30 @@ def _put_voice_to_queue(audio_file, radio):
     queue.type = Queue.VOICE_TYPE
     audio_file.save()
     queue.save()
+
+
+def shuffle_all(radio: Radio):
+    queues = Queue.objects.filter(radio=radio).all()
+    random_queues = sorted(queues, key=lambda x: random.random())
+    with transaction.atomic():
+        i = 0
+        for queue in random_queues:
+            queue.sort = i
+            queue.save()
+            i += 1
+        queues.update(status=Queue.STATUS_IN_QUEUE)
+
+
+def shuffle_unplayed(radio: Radio):
+    last_queue = Queue.objects.filter(radio=radio).filter(~Q(status=Queue.STATUS_IN_QUEUE)).order_by('-sort').first()
+    if last_queue:
+        i = last_queue.sort + 1
+    else:
+        i = 0
+    queues = Queue.objects.filter(radio=radio, status=Queue.STATUS_IN_QUEUE).all()
+    random_queues = sorted(queues, key=lambda x: random.random())
+    with transaction.atomic():
+        for queue in random_queues:
+            queue.sort = i
+            queue.save()
+            i += 1
