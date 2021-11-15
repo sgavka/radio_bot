@@ -21,13 +21,3 @@ services:
     depends_on:
       - db
     entrypoint: /entrypoint.sh
-  nginx:
-    build:
-      context: .
-      dockerfile: docker/prod/nginx/Dockerfile
-    ports:
-      - 82:80
-    volumes:
-      - static_files:/static_files
-    depends_on:
-      - web
