@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from math import ceil
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -12,7 +13,7 @@ from bot.models import Radio, TelegramUser, UserToRadio, AudioFile, Queue, Broad
 from bot.services import radio_user
 from bot.services.broadcast_user import get_owned_broadcasters
 from bot.services.radio_user import get_radio_queue, delete_queue_item, move_up_queue_item, move_down_queue_item, \
-    count_of_queue_items, shuffle_all, shuffle_unplayed
+    count_of_queue_items, shuffle_all, shuffle_unplayed, get_queue_duration_total, get_queue_duration_in_queue
 
 
 class BotContextRadio(BotContext):
@@ -243,7 +244,8 @@ class BotLogicRadio(BotLogic):
     create_message_text = _('To create new object select field and set data.\nData:\n%s')
     edit_message_text = _('It\'s your radio *%s*.\n%s\nSelect some action.')
     list_message_text = _('Here is your radios. Select one to manage:')
-    add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\n\nYour actual queue:\n%s')
+    add_to_queue_message_text = _('Upload or forward audio files here to add them to queue.\n\nYour actual queue:\n%s'
+                                  '\n\nDuration (in queue/total): _%s_/*%s*')
 
     MANAGE_QUEUE_ITEMS_ON_PAGE = 20
     MANAGE_QUEUE_DEFAULT_PAGE = 0
@@ -798,9 +800,12 @@ class BotLogicRadio(BotLogic):
     def get_queue_message_text(cls):
         page = cls.bot_context.get_manage_queue_page()
         (pointer_start, pointer_end,) = cls.bot_context.get_manage_queue_pointer()
-        queues = get_radio_queue(cls.bot_context.get_actual_object(),
+        radio = cls.bot_context.get_actual_object()
+        queues = get_radio_queue(radio,
                                  page=page,
                                  page_size=cls.MANAGE_QUEUE_ITEMS_ON_PAGE)
+        duration_total = get_queue_duration_total(radio)
+        duration_in_queue = get_queue_duration_in_queue(radio)
         cls.bot_context.set_manage_queue_actual_items_on_page(len(queues))
         queue_list = []
         index = 0
@@ -834,7 +839,20 @@ class BotLogicRadio(BotLogic):
             index += 1
 
         queue_list_str = '\n'.join(queue_list)
-        return cls.add_to_queue_message_text % (queue_list_str if queue_list_str else '[[empty]]',)
+
+        if duration_total['duration_seconds__sum'] is None:
+            duration_total['duration_seconds__sum'] = 0
+        duration_total = timedelta(seconds=duration_total['duration_seconds__sum'])
+
+        if duration_in_queue['duration_seconds__sum'] is None:
+            duration_in_queue['duration_seconds__sum'] = 0
+        duration_in_queue = timedelta(seconds=duration_in_queue['duration_seconds__sum'])
+
+        return cls.add_to_queue_message_text % (
+            queue_list_str if queue_list_str else '[[empty]]',
+            duration_in_queue,
+            duration_total,
+        )
 
     @classmethod
     @handlers_wrapper

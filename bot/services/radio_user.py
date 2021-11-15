@@ -2,7 +2,7 @@ import datetime as datetime
 import random
 
 from django.db import transaction, DatabaseError
-from django.db.models import Q
+from django.db.models import Q, Sum
 from telegram import Audio, Voice, User
 from django.utils.translation import ugettext as _
 from bot.models import UserToRadio, Radio, Queue, AudioFile
@@ -20,6 +20,17 @@ def get_radio_queue(radio: Radio, page: int, page_size: int):
         radio=radio
     ).select_related('audio_file').order_by('sort').all()[page * page_size:(page + 1) * page_size]
     return queues
+
+
+def get_queue_duration_total(radio: Radio):
+    seconds = AudioFile.objects.filter(queue__radio=radio).aggregate(Sum('duration_seconds'))
+    return seconds
+
+
+def get_queue_duration_in_queue(radio: Radio):
+    seconds = AudioFile.objects.filter(queue__radio=radio, queue__status=Queue.STATUS_IN_QUEUE)\
+        .aggregate(Sum('duration_seconds'))
+    return seconds
 
 
 def delete_queue_item(item: Queue):
