@@ -102,3 +102,54 @@ Select new configuration and run Debug.
 
 ### Broadcast
 > docker-compose run web python manage.py broadcast
+
+# Production
+
+## Commands
+
+### Build server
+`docker-compose -f docker-compose-prod.yml build`
+
+### Start server
+`docker-compose -f docker-compose-prod.yml up -d`
+
+### Create folders
+> mkdir logs
+> mkdir data
+> mkdir downloads
+
+### Migrate
+> docker-compose -f docker-compose-prod.yml run web python manage.py migrate
+
+### Create Admin superuser
+> docker-compose -f docker-compose-prod.yml run web python manage.py createsuperuser
+
+### Load fixtures
+> docker-compose -f docker-compose-prod.yml run web python manage.py loaddata <fixturename>
+
+### Start bot
+> docker-compose -f docker-compose-prod.yml run web python manage.py start_bot
+
+#### Start as a daemon:
+> docker-compose -f docker-compose-prod.yml run -d web python manage.py start_bot &
+
+### Format raw files
+> docker-compose -f docker-compose-prod.yml run web python manage.py format_raw_files
+
+#### Start as a daemon:
+> docker-compose -f docker-compose-prod.yml run -d web python manage.py format_raw_files &
+
+### Broadcast
+> docker-compose -f docker-compose-prod.yml run web python manage.py broadcast
+
+#### Start as a daemon:
+> docker-compose -f docker-compose-prod.yml run -d web python manage.py broadcast &
+
+## Stop bot (do it if have multiple containers with bot)
+> docker-compose -f docker-compose-prod.yml ps
+> docker stop <container_id>
+> docker ps
+> docker-compose -f docker-compose-prod.yml stop
+
+## Start DB backup
+> docker-compose -f /root/radio_bot/docker-compose-prod.yml run web ./pg_backup_rotated.sh
