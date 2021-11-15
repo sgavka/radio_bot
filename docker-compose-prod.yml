@@ -5,7 +5,7 @@ services:
   db:
     image: postgres
     ports:
-      - "5436:5432"
+      - "5432:5432"
     env_file:
       - docker/prod/.env
   web:
