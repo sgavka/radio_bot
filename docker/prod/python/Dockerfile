@@ -1,4 +1,4 @@
-FROM python:3
+FROM python:3.9
 
 RUN mkdir /code
 WORKDIR /code
@@ -17,6 +17,7 @@ RUN set -x; \
 # install requiremnts
 COPY ./requirements /code/requirements
 RUN pip install --upgrade pip
+RUN pip install --upgrade setuptools
 RUN pip install -r requirements/prod.txt
 RUN pip install -r requirements/prod.txt --upgrade
 

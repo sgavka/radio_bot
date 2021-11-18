@@ -1095,12 +1095,24 @@ class BotLogicRadio(BotLogic):
                         callback_data=cls.PAUSE_AIR_CALLBACK_DATA
                     ),
                 )
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Restart Broadcasting'),
+                        callback_data=cls.START_AIR_CALLBACK_DATA
+                    ),
+                )
             elif radio.status == Radio.STATUS_ASKING_FOR_BROADCAST \
-                    and radio.status == Radio.STATUS_STARTING_BROADCAST:
+                    or radio.status == Radio.STATUS_STARTING_BROADCAST:
                 on_air_row.append(
                     InlineKeyboardButton(
                         _('%s Starting...') % ("\U0001F7E0",),
                         callback_data='blank'
+                    ),
+                )
+                on_air_row.append(
+                    InlineKeyboardButton(
+                        _('Restart Broadcasting'),
+                        callback_data=cls.START_AIR_CALLBACK_DATA
                     ),
                 )
             elif radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
@@ -1137,7 +1149,7 @@ class BotLogicRadio(BotLogic):
                         callback_data=cls.RESUME_AIR_CALLBACK_DATA
                     ),
                 )
-            elif Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED <= radio.status <= Radio.STATUS_ERROR_NETWORK:
+            elif Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED <= radio.status <= Radio.STATUS_ERROR_JOIN_AS_PEER_INVALID:
                 on_air_row.append(
                     InlineKeyboardButton(
                         _('Error: %s') % (Radio.STATUSES[radio.status],),
@@ -1159,7 +1171,7 @@ class BotLogicRadio(BotLogic):
                 callback_data=cls.CHOOSE_BROADCASTER_CALLBACK_DATA),
         ])
 
-        if cls.bot_context.is_edit_action():
+        if cls.bot_context.is_edit_action() and radio.broadcast_user:
             if radio.broadcast_user.status == BroadcastUser.STATUS_IS_AUTH:
                 keyboard.append([
                     InlineKeyboardButton(

@@ -86,6 +86,7 @@ class Radio(models.Model):
     STATUS_ERROR_IS_NOT_AUTHORIZED = 11
     STATUS_ERROR_CANT_CONNECT = 12
     STATUS_ERROR_NETWORK = 13
+    STATUS_ERROR_JOIN_AS_PEER_INVALID = 14
     STATUSES = {
         STATUS_ON_AIR: 'On air',
         STATUS_NOT_ON_AIR: 'Not on air',

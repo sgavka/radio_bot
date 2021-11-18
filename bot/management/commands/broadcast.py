@@ -1,10 +1,9 @@
-# todo: after restart server put all radio in status STATUS_NOT_ON_AIR
-# todo: sometime duration in seconds in telegram object is broken, need to get from ffmpeg
+# todo: broadcaster can broadcast as channel only if it owns the channel
+# todo: catch error pyrogram.errors.exceptions.bad_request_400.BadRequest: [400 Bad Request]: [400 JOIN_AS_PEER_INVALID] (caused by "phone.JoinGroupCall")
 import logging
 import multiprocessing
 import os
 import asyncio
-import re
 from logging.handlers import QueueHandler
 from multiprocessing import Process
 from shutil import copyfile
@@ -17,6 +16,7 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait, ChannelInvalid
 from pyrogram.raw.functions.channels import GetFullChannel
 from pyrogram.raw.functions.phone import EditGroupCallTitle, GetGroupParticipants
+from pyrogram.raw.types import InputPeerChat, InputPeerChannel
 from pyrogram.raw.types.phone import GroupParticipants
 from pyrogram.utils import get_channel_id
 from pytgcalls.exceptions import GroupCallNotFoundError
@@ -79,7 +79,7 @@ class QueueClient(object):
         # init sessions directory
         sessions_directory = 'data/sessions'
         if not os.path.exists(sessions_directory):
-            os.mkdir(sessions_directory)
+            os.makedirs(sessions_directory)
         session_name = '%s_account' % (broadcast_user_uid,)
         return session_name, sessions_directory
 
@@ -87,7 +87,7 @@ class QueueClient(object):
         # init sessions directory
         sessions_directory = 'data/sessions'
         if not os.path.exists(sessions_directory):
-            os.mkdir(sessions_directory)
+            os.makedirs(sessions_directory)
         session_name = '%s_account_%s_radio' % (broadcast_user_uid, radio_id)
         return session_name, sessions_directory
 
@@ -103,6 +103,7 @@ class QueueGroupCall(object):
         self._is_now_playing = False
         self._asking_pause = False
         self._asking_resume = False
+        self._is_on_zero_participants_pause = False
         self.queue = None
         self.radio = None
         self.participants_count = None
@@ -115,6 +116,10 @@ class QueueGroupCall(object):
 
     def asking_pause(self):
         self._asking_pause = True
+        self._is_on_zero_participants_pause = True
+
+    def is_on_zero_participants_pause(self):
+        return self._is_on_zero_participants_pause
 
     def unasking_pause(self):
         self._asking_pause = False
@@ -159,15 +164,25 @@ class QueueGroupCall(object):
         self._is_now_playing = True
         self.group_call.input_filename = audio_file_path
 
-    async def set_title(self, title: str):
-        peer = await self.client.resolve_peer(self.radio.chat_id)
-        chat = await self.client.send(GetFullChannel(channel=peer))
-        data = EditGroupCallTitle(call=chat.full_chat.call, title=title)
-        result = await self.client.send(data)
-        if type(result) is pyrogram.raw.types.updates_t.Updates:
-            return True
+    async def set_title(self, title: str, additional_channel_id: int = None):
+        if self.radio or additional_channel_id is not None:
+            if additional_channel_id is None:
+                peer = await self.client.resolve_peer(self.radio.chat_id)
+            else:
+                peer = await self.client.resolve_peer(additional_channel_id)
+            chat = await self.client.send(GetFullChannel(channel=peer))
+            data = EditGroupCallTitle(call=chat.full_chat.call, title=title)
+            if type(chat) is pyrogram.raw.types.messages.chat_full.ChatFull \
+                    and type(chat.full_chat.call) is pyrogram.raw.types.input_group_call.InputGroupCall:
+                result = await self.client.send(data)
+                if type(result) is pyrogram.raw.types.updates_t.Updates:
+                    return True
+                else:
+                    return False  # todo: check errors (write to logs) (raise exception)
+            else:
+                return False  # todo: check errors (write to logs) (raise exception)
         else:
-            return False  # todo: check errors (write to logs)
+            return False  # todo: check errors (write to logs) (raise exception)
 
     def is_started(self):
         return self._is_started
@@ -204,6 +219,23 @@ class Command(BaseCommand):
         bot_from_db = get_bot_from_db()
         self.bot = Bot(bot_from_db.token)
 
+        # before start — all abandoned started radio need to put in error status
+        Radio.objects.filter(
+            status__in=[
+                Radio.STATUS_ON_AIR,
+                Radio.STATUS_ON_PAUSE,
+                Radio.STATUS_ASKING_FOR_STOP_BROADCAST,
+                Radio.STATUS_STARTING_BROADCAST,
+                Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST,
+            ]
+        )\
+            .update(status=Radio.STATUS_ERROR_UNEXPECTED)
+
+        # before start — all abandoned queue need to put back to queue
+        Queue.objects.filter(
+            status=Queue.STATUS_PLAYING
+        ).update(status=Queue.STATUS_IN_QUEUE)
+
         try:
             while True:
                 radios = Radio.objects.filter(status=Radio.STATUS_ASKING_FOR_BROADCAST)
@@ -221,6 +253,11 @@ class Command(BaseCommand):
                         raise e
                 except StopIteration:
                     pass
+        except asyncio.exceptions.TimeoutError as e:
+            logger = logging.getLogger('broadcast')
+            logger.critical('asyncio timout error')
+            logger.critical(str(e), exc_info=True)
+            raise e
         except BaseException as e:
             logger = logging.getLogger('broadcast')
             logger.critical(str(e), exc_info=True)
@@ -328,6 +365,7 @@ class Command(BaseCommand):
                         await queue_group_call.set_title(_('Resuming...'))
                         group_call.resume_playout()
                         queue_group_call._is_now_playing = True
+                        queue_group_call._is_on_zero_participants_pause = False
                         queue_group_call.unasking_resume()
                         if type(actual_queue) is Queue:
                             await queue_group_call.set_title(actual_queue.audio_file.get_full_title())
@@ -339,6 +377,18 @@ class Command(BaseCommand):
                             start_message_is_sent = True
                             await queue_group_call.set_title(_('Starting...'))
                             await self.send_message(_('Radio is On Air!'), radio)
+                    except pyrogram.errors.exceptions.bad_request_400.BadRequest as e:
+                        if 'JOIN_AS_PEER_INVALID' in str(e):
+                            radio.status = Radio.STATUS_ERROR_JOIN_AS_PEER_INVALID
+                            save_data_to_db = sync_to_async(Command.save_data_to_db)
+                            await save_data_to_db(radio)
+                            await self.send_message(
+                                _('Error: JOIN_AS_PEER_INVALID!'),
+                                radio
+                            )
+                            break
+                        else:
+                            raise e
                     except OperationalError as e:
                         self.logger.critical(str(e), exc_info=True)
                         raise e  # todo: that is this error?
@@ -353,6 +403,8 @@ class Command(BaseCommand):
                         if not first_queue:
                             await queue_group_call.set_title(_('Queue is empty...'))
                             await asyncio.sleep(5.0)  # wait some time to download the next audio file
+                            queue_group_call._is_now_playing = False
+
                             continue
 
                         # disable play on repeat same file
@@ -393,24 +445,7 @@ class Command(BaseCommand):
                     )
                     break
                 except FloodWait as e:
-                    match = re.search(r'\ \d+\  ', str(e))
-                    if match:
-                        await asyncio.sleep(int(match.group(1)))
-                    else:
-                        if radio:
-                            radio.status = Radio.STATUS_ERROR_UNEXPECTED
-                            save_data_to_db = sync_to_async(Command.save_data_to_db)
-                            await save_data_to_db(radio)
-
-                        if actual_queue:
-                            # is broadcast is stopped set current queue file again to queue
-                            actual_queue.status = Queue.STATUS_IN_QUEUE
-                            save_data_to_db = sync_to_async(Command.save_data_to_db)
-                            await save_data_to_db(actual_queue)
-
-                        self.logger.critical('Can\'t parse FloodWait exception to wait!', exc_info=True)
-                        self.logger.critical(str(e), exc_info=True)
-                        raise e
+                    await asyncio.sleep(int(e.x))
                 except ChannelInvalid as e:
                     self.logger.critical(str(e), exc_info=True)  # log it on case if it is different error than handled
                     radio.status = Radio.STATUS_ERROR_BROADCASTER_IS_NOT_IN_BROADCAST_GROUP_OR_CHANNEL
@@ -515,14 +550,14 @@ class Command(BaseCommand):
                 limit=5000,
             )
 
-            # data = GetGroupCall(call=group_call.group_call)
             group_participants: GroupParticipants = await queue_group_call.client.send(data)
             if type(group_participants) is GroupParticipants:
+                channel_id = get_channel_id(group_call.full_chat.id)  # todo: check if works for chats
                 if group_participants.count - 1 == 0:
-                    await queue_group_call.set_title(_('Pausing...'))
+                    await queue_group_call.set_title(_('Pausing...'), channel_id)
                     queue_group_call.asking_pause()
-                else:
-                    await queue_group_call.set_title(_('Resuming...'))
+                elif queue_group_call.is_on_zero_participants_pause():
+                    await queue_group_call.set_title(_('Resuming...'), channel_id)
                     queue_group_call.asking_resume()
             else:
                 self.logger.error(
@@ -556,10 +591,10 @@ class Command(BaseCommand):
             for queue_client in client_radio.values():
                 queue_group_call: QueueGroupCall
                 for group_id, queue_group_call in queue_client.group_calls.items():
-                    if hasattr(group_call.chat_peer, 'chat_id'):
-                        if group_id == group_call.chat_peer.channel_id * -100:  # todo: check if this works
+                    if type(group_call.chat_peer) is InputPeerChat:
+                        if group_id == get_channel_id(group_call.chat_peer.channel_id):  # todo: check if this works
                             break
-                    elif hasattr(group_call.chat_peer, 'channel_id'):
+                    elif type(group_call.chat_peer) is InputPeerChannel:
                         if group_id == get_channel_id(group_call.chat_peer.channel_id):
                             break
         if queue_group_call and type(group_id) is int:

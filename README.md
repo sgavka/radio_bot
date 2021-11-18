@@ -108,10 +108,10 @@ Select new configuration and run Debug.
 ## Commands
 
 ### Build server
-`docker-compose -f docker-compose-prod.yml build`
+> docker-compose -f docker-compose-prod.yml build
 
 ### Start server
-`docker-compose -f docker-compose-prod.yml up -d`
+> docker-compose -f docker-compose-prod.yml up -d
 
 ### Create folders
 > mkdir logs
@@ -126,6 +126,9 @@ Select new configuration and run Debug.
 
 ### Load fixtures
 > docker-compose -f docker-compose-prod.yml run web python manage.py loaddata <fixturename>
+Data:
+- auth (only if don't Create Admin superuser)
+- data_init
 
 ### Start bot
 > docker-compose -f docker-compose-prod.yml run web python manage.py start_bot
@@ -153,3 +156,6 @@ Select new configuration and run Debug.
 
 ## Start DB backup
 > docker-compose -f /root/radio_bot/docker-compose-prod.yml run web ./pg_backup_rotated.sh
+
+## SSH
+> ssh root@185.65.245.119

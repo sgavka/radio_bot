@@ -50,7 +50,7 @@ class Command(BaseCommand):
         # create session dir & get session name
         sessions_directory = 'data/sessions'
         if not os.path.exists(sessions_directory):
-            os.mkdir(sessions_directory)
+            os.makedirs(sessions_directory)
         download_session_name = '%s_account_%s_radio_download' % (broadcast_user.uid, radio.id)
         session_name = '%s_account' % (broadcast_user.uid,)
         if not os.path.exists(sessions_directory + '/' + download_session_name + '.session'):
@@ -118,7 +118,7 @@ class Command(BaseCommand):
         file_name_raw = audio.file_id + '.raw'
         file_directory = 'data/now-play-audio/' + str(radio.id) + '/'
         if not os.path.exists(file_directory):
-            os.mkdir(file_directory)
+            os.makedirs(file_directory)
         file_path_raw = file_directory + file_name_raw
         ffmpeg.input(file) \
             .output(file_path_raw,
@@ -131,6 +131,12 @@ class Command(BaseCommand):
                     }) \
             .overwrite_output() \
             .run()
+
+        # update audio file duration
+        # todo: move it to bot then file is added (or to separate command)
+        file_probe = ffmpeg.probe(file)
+        if 'format' in file_probe and 'duration' in file_probe['format']:
+            audio_file.duration_seconds = int(float(file_probe['format']['duration']))
 
         # set new file id
         audio_file.telegram_file_id = audio.file_id
