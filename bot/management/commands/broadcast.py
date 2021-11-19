@@ -7,6 +7,7 @@ import asyncio
 from logging.handlers import QueueHandler
 from multiprocessing import Process
 from shutil import copyfile
+from time import sleep
 import pyrogram
 import pytgcalls
 from asgiref.sync import sync_to_async
@@ -150,7 +151,7 @@ class QueueGroupCall(object):
             while not self.group_call.is_connected:  # after that the group call starts
                 # todo: check pyrogram.errors.exceptions.bad_request_400.BadRequest: [400 Bad Request]: [400
                 #  JOIN_AS_PEER_INVALID] (caused by "phone.JoinGroupCall")
-                await asyncio.sleep(0.001)
+                await asyncio.sleep(0.1)  # fix for CPU height usage
             radio.status = Radio.STATUS_ON_AIR
             save_data_to_db = sync_to_async(Command.save_data_to_db)
             await save_data_to_db(radio)
@@ -208,6 +209,7 @@ class Command(BaseCommand):
                 self.logger.log(record.levelno, record.msg)
             except Exception as e:
                 pass
+        sleep(0.1)  # fix for CPU height usage
 
     def handle(self, *args, **options):
         self.storage = QueueStorage()
@@ -253,6 +255,7 @@ class Command(BaseCommand):
                         raise e
                 except StopIteration:
                     pass
+                sleep(10)  # fix for CPU height usage
         except asyncio.exceptions.TimeoutError as e:
             logger = logging.getLogger('broadcast')
             logger.critical('asyncio timout error')
@@ -318,6 +321,7 @@ class Command(BaseCommand):
             refresh_data_iterator = 0
             start_message_is_sent = False
             actual_queue: Queue = None
+            sleep_seconds = 0.000000001
             while True:
                 try:
                     if refresh_data_iterator == self.REFRESH_DATA_ITERATIONS:
@@ -327,10 +331,14 @@ class Command(BaseCommand):
                     else:
                         refresh_data_iterator += 1
 
+                    sleep(sleep_seconds)  # fix for CPU height usage & audio
+
                     queue_group_call = queue_client.init_group_call(radio.chat_id)
                     queue_group_call.add_handler_playout_ended(self.playout_ended)
                     queue_group_call.add_handler_participant_list_updated(self.participant_list_updated)
                     group_call = queue_group_call.get()
+
+                    sleep(sleep_seconds)  # fix for CPU height usage & audio
 
                     if radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
                         # set radio status
@@ -346,8 +354,10 @@ class Command(BaseCommand):
                         await queue_group_call.set_title(_('Stopped!'))
                         break
 
-                    if radio.status == Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST\
-                            or queue_group_call.is_asking_pause():
+                    sleep(sleep_seconds)  # fix for CPU height usage & audio
+
+                    if radio.status == Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST \
+                        or queue_group_call.is_asking_pause():
                         radio.status = Radio.STATUS_ON_PAUSE
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
@@ -357,8 +367,10 @@ class Command(BaseCommand):
                         await queue_group_call.set_title(_('On Pause!'))
                         continue
 
-                    if radio.status == Radio.STATUS_ASKING_FOR_RESUME_BROADCAST\
-                            or queue_group_call.is_asking_resume():
+                    sleep(sleep_seconds)  # fix for CPU height usage & audio
+
+                    if radio.status == Radio.STATUS_ASKING_FOR_RESUME_BROADCAST \
+                        or queue_group_call.is_asking_resume():
                         radio.status = Radio.STATUS_ON_AIR
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
@@ -370,6 +382,8 @@ class Command(BaseCommand):
                         if type(actual_queue) is Queue:
                             await queue_group_call.set_title(actual_queue.audio_file.get_full_title())
                             continue
+
+                    sleep(sleep_seconds)  # fix for CPU height usage & audio
 
                     try:
                         await queue_group_call.start(radio.chat_id, radio)
@@ -393,8 +407,10 @@ class Command(BaseCommand):
                         self.logger.critical(str(e), exc_info=True)
                         raise e  # todo: that is this error?
 
+                    sleep(sleep_seconds)  # fix for CPU height usage & audio
+
                     if queue_group_call.is_started() and not queue_group_call.is_now_playing() \
-                            and radio.status != Radio.STATUS_ON_PAUSE:
+                        and radio.status != Radio.STATUS_ON_PAUSE:
                         get_first_queue = sync_to_async(self.get_first_queue)
                         first_queue: Queue = await get_first_queue(radio)
                         actual_queue = first_queue
@@ -434,7 +450,8 @@ class Command(BaseCommand):
                         await queue_group_call.set_title(first_queue.audio_file.get_full_title())
 
                     # fix: make playout_ended handler work
-                    await asyncio.sleep(0.001)
+                    # await asyncio.sleep(0.001)
+                    sleep(sleep_seconds)  # fix for CPU height usage & audio
                 except GroupCallNotFoundError:
                     radio.status = Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED
                     save_data_to_db = sync_to_async(Command.save_data_to_db)
@@ -489,7 +506,7 @@ class Command(BaseCommand):
 
             pass
         except KeyboardInterrupt as e:
-            radio.status = Radio.STATUS_NOT_ON_AIR
+            radio.status = Radio.STATUS_ERROR_UNEXPECTED
             save_data_to_db = sync_to_async(Command.save_data_to_db)
             await save_data_to_db(radio)
 

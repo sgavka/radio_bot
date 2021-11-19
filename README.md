@@ -159,3 +159,24 @@ Data:
 
 ## SSH
 > ssh root@185.65.245.119
+
+## Devops
+
+### Top
+> top
+
+Some other useful commands while top is running include:
+
+    M – sort task list by memory usage
+    P – sort task list by processor usage
+    N – sort task list by process ID
+    T – sort task list by run time
+    m – visual mode change
+
+### Docker stats
+> docker stats --no-trunc
+
+### Net stats
+
+#### nload
+> nload

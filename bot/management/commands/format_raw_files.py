@@ -2,6 +2,7 @@
 import logging
 import os
 from shutil import copyfile
+from time import sleep
 import ffmpeg
 from django.core.management import BaseCommand
 from django.db import transaction
@@ -38,6 +39,8 @@ class Command(BaseCommand):
 
                 if queue:
                     self.prepare(queue)
+                else:
+                    sleep(10)  # fix for CPU height usage
         except BaseException as e:
             self.logger.critical(str(e), exc_info=True)
             raise e
