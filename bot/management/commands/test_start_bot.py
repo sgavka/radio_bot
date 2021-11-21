@@ -21,6 +21,9 @@ from pyrogram import Client, idle
 # - - sleep(0.00000001) after every action -- no
 # - - sleep(0.000000001) after every action -- so-so
 # - - 2 prev -- no
+# - use pytgcalls dev --
+from pytgcalls.implementation.group_call import GroupCall
+
 
 class Command(BaseCommand):
     TOKEN = os.environ.get('TELEGRAM_API_KEY')
@@ -147,7 +150,7 @@ class Command(BaseCommand):
         pass
         # await pyrogram.idle()
 
-    async def init_set_file(self, file_path_raw, group_call, is_file_set):
+    async def init_set_file(self, file_path_raw, group_call: GroupCall, is_file_set):
         if not is_file_set:
             group_call.input_filename = file_path_raw
             is_file_set = True
@@ -181,7 +184,7 @@ class Command(BaseCommand):
         file_path_raw = file_directory + file_name_raw
         return file_path_raw, original_file
 
-    async def init_start(self, group_call, group_id, is_started):
+    async def init_start(self, group_call: GroupCall, group_id, is_started):
         if not is_started:
             self.stdout.write(self.style.SUCCESS('Try to start broadcast for First Group Call.'))
             await group_call.start(group_id)
@@ -193,14 +196,14 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('First Group Call is started!'))
         return is_started
 
-    async def init_handler(self, group_call, is_handler_playout_ended_set):
+    async def init_handler(self, group_call: GroupCall, is_handler_playout_ended_set):
         if not is_handler_playout_ended_set:
             group_call.on_playout_ended(self.playout_ended)
             is_handler_playout_ended_set = True
             self.stdout.write(self.style.SUCCESS('Playout Ended handler for First Group Call is set.'))
         return is_handler_playout_ended_set
 
-    async def init_group_call(self, client, group_call):
+    async def init_group_call(self, client, group_call) -> GroupCall:
         if group_call is False:
             group_call = pytgcalls.GroupCallFactory(
                 client,

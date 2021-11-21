@@ -4,7 +4,7 @@ PyYAML>=5.2
 python-telegram-bot
 nltk
 python-gettext
-pyrogram
-pytgcalls[pyrogram]>=2.1
+Pyrogram @ git+https://github.com/pyrogram/pyrogram@master
+pytgcalls[pyrogram]>=3.0.0.dev19
 tgcrypto
 ffmpeg-python

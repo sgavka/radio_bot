@@ -131,7 +131,7 @@ class QueueGroupCall(object):
     def unasking_resume(self):
         self._asking_resume = False
 
-    def get(self) -> pytgcalls.GroupCall:
+    def get(self):
         return self.group_call
 
     def add_handler_playout_ended(self, playout_ended):

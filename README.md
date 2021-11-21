@@ -78,13 +78,6 @@ Select new configuration and run Debug.
 ## Start DB backup
 `docker-compose -f /root/gavka_assistant_bot/docker-compose-prod.yml run web ./pg_backup_rotated.sh`
 
-## Start actions
-`docker-compose -f /root/gavka_assistant_bot/docker-compose-prod.yml run web nohup python3 manage.py google_keep create_today_todo`
--- once a day, in morning.
-
-`docker-compose -f /root/gavka_assistant_bot/docker-compose-prod.yml run web nohup python3 manage.py google_keep todo_reminder`
--- every 1-2 hours.
-
 # ToDo
 - make visible then model is not saved
 - add validation for chat_id (is group or channel) & download_chat_id (is chat)
@@ -180,3 +173,10 @@ Some other useful commands while top is running include:
 
 #### nload
 > nload
+
+# Conda
+
+> sudo chmod +x docker/conda/env.sh
+
+## Broadcast Script
+> ./docker/conda/env.sh && python manage.py broadcast_conda
