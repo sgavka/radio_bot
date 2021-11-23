@@ -6,10 +6,8 @@ from time import sleep
 import ffmpeg
 import pyrogram
 from pyrogram.raw import functions
-import pytgcalls
 from django.core.management.base import BaseCommand
 from pyrogram.raw.types import InputPeerChat
-from pytgcalls.exceptions import GroupCallNotFoundError
 from pyrogram import Client, idle
 
 # variants:
@@ -22,8 +20,12 @@ from pyrogram import Client, idle
 # - - sleep(0.000000001) after every action -- so-so
 # - - 2 prev -- no
 # - use pytgcalls dev --
-# todo: check with pytgcalls stable version
-from pytgcalls.implementation.group_call import GroupCall
+# - check py-tgcalls
+# -- install npm & nodejs >=15v
+
+from pytgcalls import PyTgCalls, StreamType
+from pytgcalls.types.groups import JoinedGroupCallParticipant
+from pytgcalls.types.input_stream import InputStream, InputAudioStream
 
 
 class Command(BaseCommand):
@@ -103,11 +105,17 @@ class Command(BaseCommand):
                 # is_handler_playout_ended_set = await self.init_handler(group_call, is_handler_playout_ended_set)
 
                 if not is_handler_participant_list_updated_set:
-                    group_call.on_participant_list_updated(self.participant_list_updated)
+                    @group_call.on_participants_change()
+                    async def handler(client: PyTgCalls, update: JoinedGroupCallParticipant):
+                        self.stdout.write(self.style.SUCCESS('Participant list updated. First!'))
+                        pass
                     is_handler_participant_list_updated_set = True
 
                 if not is_handler_participant_list_updated_set_second:
-                    group_call_second.on_participant_list_updated(self.participant_list_updated_second)
+                    @group_call_second.on_participants_change()
+                    async def handler_second(client: PyTgCalls, update: JoinedGroupCallParticipant):
+                        self.stdout.write(self.style.SUCCESS('Participant list updated. Second!'))
+                        pass
                     is_handler_participant_list_updated_set_second = True
 
                 is_started = await self.init_start(group_call, group_id, is_started)
@@ -119,18 +127,18 @@ class Command(BaseCommand):
                 skip_prepare_file = await self.init_file_prepare(file_path_raw, original_file, skip_prepare_file)
                 skip_prepare_file_second = await self.init_file_prepare(file_path_raw_second, original_file_second, skip_prepare_file_second)
 
-                is_file_set = await self.init_set_file(file_path_raw, group_call, is_file_set)
-                is_file_set_second = await self.init_set_file(file_path_raw_second, group_call_second, is_file_set_second)
+                is_file_set = await self.init_set_file(file_path_raw, group_call, is_file_set, group_id)
+                is_file_set_second = await self.init_set_file(file_path_raw_second, group_call_second, is_file_set_second, group_id_second)
 
                 # if not is_file_set_second:
                 #     group_call_second.input_filename = self.INPUT_FILENAME
                 #     is_file_set_second = True
 
-                # await asyncio.sleep(10)
+                await asyncio.sleep(1)
                 sleep(1)
-        except GroupCallNotFoundError as e:
-            self.stdout.write(self.style.ERROR('Error GroupCallNotFoundError: ' + str(e)))
-            return
+        # except GroupCallNotFoundError as e:
+        #     self.stdout.write(self.style.ERROR('Error GroupCallNotFoundError: ' + str(e)))
+        #     return
         except Exception as e:
             self.stdout.write(self.style.ERROR('Error: ' + str(e)))
             return
@@ -163,9 +171,17 @@ class Command(BaseCommand):
         pass
         # await pyrogram.idle()
 
-    async def init_set_file(self, file_path_raw, group_call: GroupCall, is_file_set):
+    async def init_set_file(self, file_path_raw, group_call: PyTgCalls, is_file_set, group_id):
         if not is_file_set:
-            group_call.input_filename = file_path_raw
+            await group_call.join_group_call(
+                group_id,
+                InputStream(
+                    InputAudioStream(
+                        file_path_raw,
+                    ),
+                ),
+                stream_type=StreamType().local_stream,
+            )
             is_file_set = True
             self.stdout.write(self.style.SUCCESS('Set file to play in First Group Call.'))
         return is_file_set
@@ -177,7 +193,7 @@ class Command(BaseCommand):
                 .output(file_path_raw,
                         format='s16le',
                         acodec='pcm_s16le',
-                        ac=2,
+                        ac=1,
                         ar='48k',
                         **{
                             'b:a': '128k'
@@ -197,32 +213,28 @@ class Command(BaseCommand):
         file_path_raw = file_directory + file_name_raw
         return file_path_raw, original_file
 
-    async def init_start(self, group_call: GroupCall, group_id, is_started):
+    async def init_start(self, group_call: PyTgCalls, group_id, is_started):
         if not is_started:
             self.stdout.write(self.style.SUCCESS('Try to start broadcast for First Group Call.'))
-            await group_call.start(group_id)
+            await group_call.start()
             while not group_call.is_connected:  # after that the group call starts
                 self.stdout.write(self.style.ERROR('Can\'t start First Group Call. Wait!'))
                 await asyncio.sleep(0.001)
-            group_call.play_on_repeat = False
+            # group_call.play_on_repeat = False
             is_started = True
             self.stdout.write(self.style.SUCCESS('First Group Call is started!'))
         return is_started
 
-    async def init_handler(self, group_call: GroupCall, is_handler_playout_ended_set):
+    async def init_handler(self, group_call: PyTgCalls, is_handler_playout_ended_set):
         if not is_handler_playout_ended_set:
             group_call.on_playout_ended(self.playout_ended)
             is_handler_playout_ended_set = True
             self.stdout.write(self.style.SUCCESS('Playout Ended handler for First Group Call is set.'))
         return is_handler_playout_ended_set
 
-    async def init_group_call(self, client, group_call) -> GroupCall:
+    async def init_group_call(self, client, group_call) -> PyTgCalls:
         if group_call is False:
-            group_call = pytgcalls.GroupCallFactory(
-                client,
-                # enable_logs_to_console=True,
-                outgoing_audio_bitrate_kbit=128
-            ).get_file_group_call()
+            group_call = PyTgCalls(client)
             self.stdout.write(self.style.SUCCESS('First Group Call is created.'))
         return group_call
 

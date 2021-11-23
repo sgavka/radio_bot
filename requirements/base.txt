@@ -1,10 +1,10 @@
 Django>=3.0
-psycopg2>=2.7,<3.0
+psycopg2
 PyYAML>=5.2
 python-telegram-bot
 nltk
 python-gettext
 Pyrogram @ git+https://github.com/pyrogram/pyrogram@master
-pytgcalls[pyrogram]>=3.0.0.dev19
+py-tgcalls
 tgcrypto
 ffmpeg-python
