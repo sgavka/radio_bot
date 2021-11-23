@@ -22,6 +22,7 @@ from pyrogram import Client, idle
 # - - sleep(0.000000001) after every action -- so-so
 # - - 2 prev -- no
 # - use pytgcalls dev --
+# todo: check with pytgcalls stable version
 from pytgcalls.implementation.group_call import GroupCall
 
 
@@ -31,6 +32,14 @@ class Command(BaseCommand):
     OUTPUT_FILENAME = 'output.raw'
 
     async def playout_ended(self, group_call, file_name):
+        pass
+
+    async def participant_list_updated(self, group_call, participants):
+        self.stdout.write(self.style.SUCCESS('Participant list updated first: ' + group_call.full_chat.about))
+        pass
+
+    async def participant_list_updated_second(self, group_call, participants):
+        self.stdout.write(self.style.SUCCESS('Participant list updated second: ' + group_call.full_chat.about))
         pass
 
     async def main(self, client: Client = None):
@@ -67,12 +76,16 @@ class Command(BaseCommand):
 
         try:
             group_id = -1001680538518
+            group_id_second = -1001771950391
 
             group_call = False
             group_call_second = False
 
             is_handler_playout_ended_set = False
             is_handler_playout_ended_set_second = False
+
+            is_handler_participant_list_updated_set = False
+            is_handler_participant_list_updated_set_second = False
 
             is_started = False
             is_started_second = False
@@ -81,33 +94,33 @@ class Command(BaseCommand):
             is_file_set_second = False
 
             skip_prepare_file = False
+            skip_prepare_file_second = False
 
             while True:
                 group_call = await self.init_group_call(client, group_call)
+                group_call_second = await self.init_group_call(client_second, group_call_second)
 
-                # if group_call_second is False:
-                #     group_call_second = pytgcalls.GroupCallFactory(client_second).get_file_group_call()
+                # is_handler_playout_ended_set = await self.init_handler(group_call, is_handler_playout_ended_set)
 
-                is_handler_playout_ended_set = await self.init_handler(group_call, is_handler_playout_ended_set)
+                if not is_handler_participant_list_updated_set:
+                    group_call.on_participant_list_updated(self.participant_list_updated)
+                    is_handler_participant_list_updated_set = True
 
-                # if not is_handler_playout_ended_set_second:
-                #     group_call_second.on_playout_ended(self.playout_ended)
-                #     is_handler_playout_ended_set_second = True
+                if not is_handler_participant_list_updated_set_second:
+                    group_call_second.on_participant_list_updated(self.participant_list_updated_second)
+                    is_handler_participant_list_updated_set_second = True
 
                 is_started = await self.init_start(group_call, group_id, is_started)
+                is_started_second = await self.init_start(group_call_second, group_id_second, is_started_second)
 
-                # if not is_started_second:
-                #     await group_call_second.start(-1001692110023)
-                #     while not group_call_second.is_connected:  # after that the group call starts
-                #         await asyncio.sleep(0.001)
-                #     group_call_second.play_on_repeat = False
-                #     is_started_second = True
-
-                file_path_raw, original_file = await self.init_file_names()
+                file_path_raw, original_file = await self.init_file_names(1)
+                file_path_raw_second, original_file_second = await self.init_file_names(4)
 
                 skip_prepare_file = await self.init_file_prepare(file_path_raw, original_file, skip_prepare_file)
+                skip_prepare_file_second = await self.init_file_prepare(file_path_raw_second, original_file_second, skip_prepare_file_second)
 
                 is_file_set = await self.init_set_file(file_path_raw, group_call, is_file_set)
+                is_file_set_second = await self.init_set_file(file_path_raw_second, group_call_second, is_file_set_second)
 
                 # if not is_file_set_second:
                 #     group_call_second.input_filename = self.INPUT_FILENAME
@@ -175,9 +188,9 @@ class Command(BaseCommand):
             skip_prepare_file = True
         return skip_prepare_file
 
-    async def init_file_names(self):
-        original_file = 'data/test/' + str(1) + '.mp3'
-        file_name_raw = str(1) + '.raw'
+    async def init_file_names(self, id: int):
+        original_file = 'data/test/' + str(id) + '.mp3'
+        file_name_raw = str(id) + '.raw'
         file_directory = 'data/test/'
         if not os.path.exists(file_directory):
             os.makedirs(file_directory)
@@ -207,7 +220,7 @@ class Command(BaseCommand):
         if group_call is False:
             group_call = pytgcalls.GroupCallFactory(
                 client,
-                enable_logs_to_console=True,
+                # enable_logs_to_console=True,
                 outgoing_audio_bitrate_kbit=128
             ).get_file_group_call()
             self.stdout.write(self.style.SUCCESS('First Group Call is created.'))
