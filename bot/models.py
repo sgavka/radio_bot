@@ -14,7 +14,7 @@ class BroadcastUser(models.Model):
     STATUS_IS_AUTH = 1
 
     id = models.AutoField(primary_key=True)
-    uid = models.BigIntegerField(blank=True, null=True, unique=True)
+    uid = models.BigIntegerField(blank=True, null=True)
     api_id = models.BigIntegerField()
     api_hash = models.CharField(max_length=255, blank=False)
     phone_number = models.CharField(max_length=255, blank=False)

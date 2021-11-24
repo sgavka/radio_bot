@@ -8,3 +8,4 @@ Pyrogram @ git+https://github.com/pyrogram/pyrogram@master
 pytgcalls[pyrogram]>=3.0.0.dev19
 tgcrypto
 ffmpeg-python
+psutil

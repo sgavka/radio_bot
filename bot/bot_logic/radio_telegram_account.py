@@ -3,6 +3,7 @@ import os
 import re
 import threading
 from math import ceil
+from time import sleep
 
 import pyrogram
 from django.core.exceptions import ValidationError
@@ -668,6 +669,7 @@ class BotLogicRadioTelegramAccount(BotLogic):
             elif auth_queue.status == BroadcasterAuthQueue.STATUS_END_AUTH_PROCESS:
                 return cls.SET_FIELDS_STATE
             # todo: add button send another code
+            sleep(1)
 
     @classmethod
     @handlers_wrapper

@@ -1,5 +1,7 @@
 import logging
 import os
+from time import sleep
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from pyrogram import Client
@@ -25,6 +27,7 @@ class Command(BaseCommand):
                 # todo: maybe use subprocess there
                 for broadcast_auth in broadcaster_queue:
                     self.login(broadcast_auth)
+                sleep(1)
         except BaseException as e:
             self.logger.critical(str(e), exc_info=True)
             raise e
@@ -130,7 +133,7 @@ class Command(BaseCommand):
             session_path = 'data/sessions/'
             os.rename(
                 session_path + session_name + '.session',
-                session_path + get_session_name(broadcast_auth.broadcast_user.uid) + '.session'
+                session_path + get_session_name(broadcast_auth.broadcast_user.uid, broadcast_auth.broadcast_user.id) + '.session'
             )
             del self.apps[session_name]
         else:

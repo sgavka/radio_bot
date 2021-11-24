@@ -141,6 +141,12 @@ Data:
 #### Start as a daemon:
 > docker-compose -f docker-compose-prod.yml run -d web python manage.py broadcast &
 
+### Broadcast
+> docker-compose -f docker-compose-prod.yml run web python manage.py broadcaster_auth
+
+#### Start as a daemon:
+> docker-compose -f docker-compose-prod.yml run -d web python manage.py broadcaster_auth &
+
 ## Stop bot (do it if have multiple containers with bot)
 > docker-compose -f docker-compose-prod.yml ps
 > docker stop <container_id>
