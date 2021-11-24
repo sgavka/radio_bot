@@ -5,6 +5,6 @@ python-telegram-bot
 nltk
 python-gettext
 Pyrogram @ git+https://github.com/pyrogram/pyrogram@master
-py-tgcalls
+pytgcalls[pyrogram]>=3.0.0.dev19
 tgcrypto
 ffmpeg-python

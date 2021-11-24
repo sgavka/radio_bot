@@ -1,5 +1,8 @@
 # todo: broadcaster can broadcast as channel only if it owns the channel
 # todo: catch error pyrogram.errors.exceptions.bad_request_400.BadRequest: [400 Bad Request]: [400 JOIN_AS_PEER_INVALID] (caused by "phone.JoinGroupCall")
+# todo: error -- sqlite3.OperationalError: database is locked
+# todo: cant stop then broadcast is on pause
+# todo: check audio quality
 import logging
 import multiprocessing
 import os
@@ -7,7 +10,7 @@ import asyncio
 from logging.handlers import QueueHandler
 from multiprocessing import Process
 from shutil import copyfile
-from time import sleep
+from time import sleep, time
 import pyrogram
 import pytgcalls
 from asgiref.sync import sync_to_async
@@ -17,7 +20,7 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait, ChannelInvalid
 from pyrogram.raw.functions.channels import GetFullChannel
 from pyrogram.raw.functions.phone import EditGroupCallTitle, GetGroupParticipants
-from pyrogram.raw.types import InputPeerChat, InputPeerChannel
+from pyrogram.raw.types import InputPeerChat, InputPeerChannel, InputGroupCall
 from pyrogram.raw.types.phone import GroupParticipants
 from pyrogram.utils import get_channel_id
 from pytgcalls.exceptions import GroupCallNotFoundError
@@ -31,20 +34,20 @@ from bot.services.bot import get_bot_from_db
 
 class QueueStorage(object):
     def __init__(self):
-        self.clients = {}
+        self.radios = {}
+
+    def is_radio_on_queue(self, radio_id: int):
+        return radio_id in self.radios.keys()
 
     def init(self, broadcast_user_uid: int, broadcast_user_api_id: int,
-             broadcast_user_api_hash: str, radio_id: int) -> 'QueueClient':
-        if broadcast_user_uid not in self.clients.keys():
-            self.clients[broadcast_user_uid] = {}
-
-        if radio_id not in self.clients[broadcast_user_uid]:
-            self.clients[broadcast_user_uid][radio_id] = QueueClient(broadcast_user_uid, broadcast_user_api_id,
-                                                                     broadcast_user_api_hash, radio_id, self)
-        return self.clients[broadcast_user_uid][radio_id]
+             broadcast_user_api_hash: str, radio_id: int) -> 'QueueRadio':
+        if radio_id not in self.radios.keys():
+            self.radios[radio_id] = QueueRadio(broadcast_user_uid, broadcast_user_api_id,
+                                                                   broadcast_user_api_hash, radio_id, self)
+        return self.radios[radio_id]
 
 
-class QueueClient(object):
+class QueueRadio(object):
     def __init__(self, broadcast_user_uid: int, broadcast_user_api_id: int, broadcast_user_api_hash: str,
                  radio_id: int, storage: QueueStorage):
         session_name, sessions_directory = self.init_session(broadcast_user_uid)
@@ -64,16 +67,16 @@ class QueueClient(object):
                              api_hash=broadcast_user_api_hash,
                              workdir=sessions_directory
                              )
-        self.group_calls = {}
+        self.group_call: QueueGroupCall = None
         self.storage = storage
 
     def get(self):
         return self.client
 
     def init_group_call(self, chat_id: int) -> 'QueueGroupCall':
-        if chat_id not in self.group_calls.keys():
-            self.group_calls[chat_id] = QueueGroupCall(self.client, self.storage)
-        return self.group_calls[chat_id]
+        if self.group_call is None:
+            self.group_call = QueueGroupCall(self.client, self.storage, chat_id)
+        return self.group_call
 
     def init_session(self, broadcast_user_uid: int):
         # todo: move all strings to constants or config
@@ -94,9 +97,12 @@ class QueueClient(object):
 
 
 class QueueGroupCall(object):
-    def __init__(self, client: Client, storage):
+    def __init__(self, client: Client, storage, chat_id):
+        self.chat_id = chat_id
         self.client = client
-        self.group_call = pytgcalls.GroupCallFactory(client).get_file_group_call()
+        self.group_call: GroupCallFile = pytgcalls.GroupCallFactory(
+            client
+        ).get_file_group_call()
         self.is_handler_playout_ended_set = False
         self.is_handler_participant_list_updated_set = False
         self.storage = storage
@@ -197,6 +203,7 @@ class QueueGroupCall(object):
 
 class Command(BaseCommand):
     REFRESH_DATA_ITERATIONS = 5
+    UPDATE_PARTICIPANTS_LIST_EVERY_SECONDS = 5
 
     def log_processor(self, queue):
         self.logger = logging.getLogger('broadcast')
@@ -244,6 +251,7 @@ class Command(BaseCommand):
 
                 try:
                     for radio in radios:
+                        # todo: shared_storage.is_radio_on_queue(radio.id)
                         radio.status = Radio.STATUS_STARTING_BROADCAST
                         radio.save()
                         process = Process(target=self.worker, args=(radio, queue))
@@ -321,7 +329,7 @@ class Command(BaseCommand):
             refresh_data_iterator = 0
             start_message_is_sent = False
             actual_queue: Queue = None
-            sleep_seconds = 0.000000001
+            participant_list_updated = time()
             while True:
                 try:
                     if refresh_data_iterator == self.REFRESH_DATA_ITERATIONS:
@@ -331,14 +339,18 @@ class Command(BaseCommand):
                     else:
                         refresh_data_iterator += 1
 
-                    sleep(sleep_seconds)  # fix for CPU height usage & audio
-
                     queue_group_call = queue_client.init_group_call(radio.chat_id)
                     queue_group_call.add_handler_playout_ended(self.playout_ended)
-                    queue_group_call.add_handler_participant_list_updated(self.participant_list_updated)
                     group_call = queue_group_call.get()
 
-                    sleep(sleep_seconds)  # fix for CPU height usage & audio
+                    # queue_group_call.add_handler_participant_list_updated(self.participant_list_updated)
+                    if time() - participant_list_updated > self.UPDATE_PARTICIPANTS_LIST_EVERY_SECONDS:
+                        await self.participant_list_updated(group_call, queue_group_call, None)
+                        participant_list_updated = time()
+
+                    if radio.status >= Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED:
+                        del self.storage.radios[radio.id]
+                        break
 
                     if radio.status == Radio.STATUS_ASKING_FOR_STOP_BROADCAST:
                         # set radio status
@@ -352,12 +364,11 @@ class Command(BaseCommand):
                         await save_data_to_db(actual_queue)
 
                         await queue_group_call.set_title(_('Stopped!'))
+                        del self.storage.radios[radio.id]
                         break
 
-                    sleep(sleep_seconds)  # fix for CPU height usage & audio
-
                     if radio.status == Radio.STATUS_ASKING_FOR_PAUSE_BROADCAST \
-                        or queue_group_call.is_asking_pause():
+                            or queue_group_call.is_asking_pause():
                         radio.status = Radio.STATUS_ON_PAUSE
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
@@ -367,10 +378,8 @@ class Command(BaseCommand):
                         await queue_group_call.set_title(_('On Pause!'))
                         continue
 
-                    sleep(sleep_seconds)  # fix for CPU height usage & audio
-
                     if radio.status == Radio.STATUS_ASKING_FOR_RESUME_BROADCAST \
-                        or queue_group_call.is_asking_resume():
+                            or queue_group_call.is_asking_resume():
                         radio.status = Radio.STATUS_ON_AIR
                         save_data_to_db = sync_to_async(Command.save_data_to_db)
                         await save_data_to_db(radio)
@@ -382,8 +391,6 @@ class Command(BaseCommand):
                         if type(actual_queue) is Queue:
                             await queue_group_call.set_title(actual_queue.audio_file.get_full_title())
                             continue
-
-                    sleep(sleep_seconds)  # fix for CPU height usage & audio
 
                     try:
                         await queue_group_call.start(radio.chat_id, radio)
@@ -400,14 +407,13 @@ class Command(BaseCommand):
                                 _('Error: JOIN_AS_PEER_INVALID!'),
                                 radio
                             )
+                            del self.storage.radios[radio.id]
                             break
                         else:
                             raise e
                     except OperationalError as e:
                         self.logger.critical(str(e), exc_info=True)
                         raise e  # todo: that is this error?
-
-                    sleep(sleep_seconds)  # fix for CPU height usage & audio
 
                     if queue_group_call.is_started() and not queue_group_call.is_now_playing() \
                         and radio.status != Radio.STATUS_ON_PAUSE:
@@ -450,8 +456,8 @@ class Command(BaseCommand):
                         await queue_group_call.set_title(first_queue.audio_file.get_full_title())
 
                     # fix: make playout_ended handler work
-                    # await asyncio.sleep(0.001)
-                    sleep(sleep_seconds)  # fix for CPU height usage & audio
+                    await asyncio.sleep(1)
+                    sleep(1)  # fix for CPU height usage & audio
                 except GroupCallNotFoundError:
                     radio.status = Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED
                     save_data_to_db = sync_to_async(Command.save_data_to_db)
@@ -460,6 +466,7 @@ class Command(BaseCommand):
                         _('Your audio chat is not started, please start it and request radio start again!'),
                         radio
                     )
+                    del self.storage.radios[radio.id]
                     break
                 except FloodWait as e:
                     await asyncio.sleep(int(e.x))
@@ -473,6 +480,7 @@ class Command(BaseCommand):
                           ' Add it there and start radio again.'),
                         radio
                     )
+                    del self.storage.radios[radio.id]
                     break
                 except OperationalError as e:
                     self.logger.critical(str(e), exc_info=True)
@@ -490,11 +498,14 @@ class Command(BaseCommand):
                         _('There is unexpected error, please address to @sgavka!'),
                         radio
                     )
+                    del self.storage.radios[radio.id]
                     break
         except NetworkError as e:
             radio.status = Radio.STATUS_ERROR_NETWORK
             save_data_to_db = sync_to_async(Command.save_data_to_db)
             await save_data_to_db(radio)
+
+            del self.storage.radios[radio.id]
 
             if actual_queue:
                 # is broadcast is stopped set current queue file again to queue
@@ -510,6 +521,8 @@ class Command(BaseCommand):
             save_data_to_db = sync_to_async(Command.save_data_to_db)
             await save_data_to_db(radio)
 
+            del self.storage.radios[radio.id]
+
             if actual_queue:
                 # is broadcast is stopped set current queue file again to queue
                 actual_queue.status = Queue.STATUS_IN_QUEUE
@@ -522,11 +535,16 @@ class Command(BaseCommand):
             save_data_to_db = sync_to_async(Command.save_data_to_db)
             await save_data_to_db(radio)
 
+            del self.storage.radios[radio.id]
+
             if actual_queue:
-                # is broadcast is stopped set current queue file again to queue
-                actual_queue.status = Queue.STATUS_IN_QUEUE
-                save_data_to_db = sync_to_async(Command.save_data_to_db)
-                await save_data_to_db(actual_queue)
+                try:
+                    # is broadcast is stopped set current queue file again to queue
+                    actual_queue.status = Queue.STATUS_IN_QUEUE
+                    save_data_to_db = sync_to_async(Command.save_data_to_db)
+                    await save_data_to_db(actual_queue)
+                except UnboundLocalError:
+                    pass
 
             self.logger.critical(str(e), exc_info=True)
 
@@ -556,20 +574,22 @@ class Command(BaseCommand):
     def save_data_to_db(cls, model):
         model.save()
 
-    async def participant_list_updated(self, group_call: GroupCallFile, participants):
-        queue_group_call = self._get_queue_group_call_in_handler(group_call)
+    async def participant_list_updated(self, group_call: GroupCallFile, queue_group_call: QueueGroupCall, participants):
+        # queue_group_call = self._get_queue_group_call_in_handler(group_call)
+        self.logger.error('participant_list_updated: ' + group_call.full_chat.about)
         if queue_group_call is not False:
             data = GetGroupParticipants(
-                call=group_call.group_call,
+                call=InputGroupCall(id=group_call.group_call.id, access_hash=group_call.group_call.access_hash),
                 ids=[],
                 sources=[],
                 offset='',
-                limit=5000,
+                limit=5000,  # todo: is this enough?
             )
 
             group_participants: GroupParticipants = await queue_group_call.client.send(data)
             if type(group_participants) is GroupParticipants:
                 channel_id = get_channel_id(group_call.full_chat.id)  # todo: check if works for chats
+                self.logger.error('participant_list_updated: ' + group_call.full_chat.about + ' count: ' + str(group_participants.count))
                 if group_participants.count - 1 == 0:
                     await queue_group_call.set_title(_('Pausing...'), channel_id)
                     queue_group_call.asking_pause()
@@ -601,21 +621,15 @@ class Command(BaseCommand):
             self.logger.error('Can\'t find group call to end playout!', exc_info=True)
 
     def _get_queue_group_call_in_handler(self, group_call) -> QueueGroupCall:
-        queue_group_call = None
-        group_id = None
-        queue_client: QueueClient
-        for client_radio in self.storage.clients.values():
-            for queue_client in client_radio.values():
-                queue_group_call: QueueGroupCall
-                for group_id, queue_group_call in queue_client.group_calls.items():
-                    if type(group_call.chat_peer) is InputPeerChat:
-                        if group_id == get_channel_id(group_call.chat_peer.channel_id):  # todo: check if this works
-                            break
-                    elif type(group_call.chat_peer) is InputPeerChannel:
-                        if group_id == get_channel_id(group_call.chat_peer.channel_id):
-                            break
-        if queue_group_call and type(group_id) is int:
-            return queue_group_call
+        client_radio: QueueRadio
+        for client_radio in self.storage.radios.values():
+            if client_radio.group_call is not None:
+                if type(group_call.chat_peer) is InputPeerChat:
+                    if client_radio.group_call.chat_id == get_channel_id(group_call.chat_peer.channel_id):  # todo: check if this works
+                        return client_radio.group_call
+                elif type(group_call.chat_peer) is InputPeerChannel:
+                    if client_radio.group_call.chat_id == get_channel_id(group_call.chat_peer.channel_id):
+                        return client_radio.group_call
         return False
 
     def _set_queue_played_status(self, queue):

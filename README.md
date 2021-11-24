@@ -176,7 +176,36 @@ Some other useful commands while top is running include:
 
 # Conda
 
+## Install
+> curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.10.3-Linux-x86_64.sh --output conda.sh
+> bash conda.sh
+1. Enter
+2. yes
+3. Enter
+4. no
+> rm conda.sh
+> export PATH="/root/miniconda3/bin:$PATH"
+> conda update conda
+1. y
+> conda create -n "radio_bot" python=3.9
+1. y
+> conda init bash
+> conda activate radio_bot
+Uncomment lines in env.sh
+> conda install psycopg2
+1. y
+> pip install -r requirements/prod.txt
 > sudo chmod +x docker/conda/env.sh
+> ./docker/conda/env.sh && python manage.py broadcast_conda
 
 ## Broadcast Script
-> ./docker/conda/env.sh && python manage.py broadcast_conda
+> ./docker/conda/env.sh && python manage.py broadcast_conda &
+?:
+> ./docker/conda/env.sh && setsid (python manage.py broadcast_conda &) >/dev/null 2>&1 < /dev/null &
+> ./docker/conda/env.sh && python manage.py broadcast_conda &
+> ./docker/conda/env.sh && python manage.py broadcast_conda & > conda.log 2>&1 &
+> export SECRET_KEY="n+zf2udx+x#_po-98)5fntg4vyebVB%=bl5f4u&*tbrnc5%udfd@r3q&=y)+#)dw9" && export DJANGO_SETTINGS_MODULE=main.settings_conda && ./docker/conda/env.sh && python manage.py broadcast_conda > conda.log 2>&1 &
+
+## Stop Broadcast Script
+> ps -ef | grep "broadcast_conda"
+> kill -9 <uids>

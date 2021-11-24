@@ -1,3 +1,4 @@
+# todo: queue menage wrong processing
 import re
 from datetime import timedelta
 from math import ceil
