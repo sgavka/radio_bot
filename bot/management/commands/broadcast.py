@@ -3,6 +3,7 @@
 # todo: error -- sqlite3.OperationalError: database is locked
 # todo: cant stop then broadcast is on pause
 # todo: check audio quality
+import psutil
 import logging
 import multiprocessing
 import os
@@ -204,6 +205,7 @@ class QueueGroupCall(object):
 class Command(BaseCommand):
     REFRESH_DATA_ITERATIONS = 5
     UPDATE_PARTICIPANTS_LIST_EVERY_SECONDS = 5
+    LOG_CPU_EVERY_SECONDS = 60
 
     def log_processor(self, queue):
         self.logger = logging.getLogger('broadcast')
@@ -330,6 +332,7 @@ class Command(BaseCommand):
             start_message_is_sent = False
             actual_queue: Queue = None
             participant_list_updated = time()
+            log_cpu = time()
             while True:
                 try:
                     if refresh_data_iterator == self.REFRESH_DATA_ITERATIONS:
@@ -347,6 +350,11 @@ class Command(BaseCommand):
                     if time() - participant_list_updated > self.UPDATE_PARTICIPANTS_LIST_EVERY_SECONDS:
                         await self.participant_list_updated(group_call, queue_group_call, None)
                         participant_list_updated = time()
+
+                    if time() - log_cpu > self.LOG_CPU_EVERY_SECONDS:
+                        self.logger.error('CPU usage: %s%%.' % (str(psutil.cpu_percent()),))
+                        self.logger.error('Memory usage: %s%%.' % (str(psutil.virtual_memory().percent),))
+                        log_cpu = time()
 
                     if radio.status >= Radio.STATUS_ERROR_AUDIO_CHAT_IS_NOT_STARTED:
                         del self.storage.radios[radio.id]
@@ -576,7 +584,6 @@ class Command(BaseCommand):
 
     async def participant_list_updated(self, group_call: GroupCallFile, queue_group_call: QueueGroupCall, participants):
         # queue_group_call = self._get_queue_group_call_in_handler(group_call)
-        self.logger.error('participant_list_updated: ' + group_call.full_chat.about)
         if queue_group_call is not False:
             data = GetGroupParticipants(
                 call=InputGroupCall(id=group_call.group_call.id, access_hash=group_call.group_call.access_hash),
@@ -589,7 +596,6 @@ class Command(BaseCommand):
             group_participants: GroupParticipants = await queue_group_call.client.send(data)
             if type(group_participants) is GroupParticipants:
                 channel_id = get_channel_id(group_call.full_chat.id)  # todo: check if works for chats
-                self.logger.error('participant_list_updated: ' + group_call.full_chat.about + ' count: ' + str(group_participants.count))
                 if group_participants.count - 1 == 0:
                     await queue_group_call.set_title(_('Pausing...'), channel_id)
                     queue_group_call.asking_pause()
